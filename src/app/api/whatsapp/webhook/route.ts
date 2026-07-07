@@ -300,7 +300,8 @@ async function processWebhook(body: { entry?: WhatsAppWebhookEntry[] }) {
           // inserts that need it for NOT NULL FK compliance. Always
           // the admin who saved the WhatsApp config.
           config.user_id,
-          decryptedAccessToken
+          decryptedAccessToken,
+          config.id,
         )
       }
     }
@@ -568,7 +569,11 @@ async function processMessage(
   // (contacts, conversations). Always the admin who saved the
   // WhatsApp config; the choice is arbitrary post-017 but stable.
   configOwnerUserId: string,
-  accessToken: string
+  accessToken: string,
+  // Exact whatsapp_config row resolved from this webhook payload's
+  // phone_number_id — threaded through to anchor the conversation to
+  // the number it arrived on (see findOrCreateConversation).
+  configId: string,
 ) {
   const senderPhone = normalizePhone(message.from)
   const contactName = contact.profile.name
@@ -587,7 +592,8 @@ async function processMessage(
   const convResult = await findOrCreateConversation(
     accountId,
     configOwnerUserId,
-    contactRecord.id
+    contactRecord.id,
+    configId,
   )
   if (!convResult) return
   const conversation = convResult.conversation
@@ -1034,6 +1040,11 @@ async function findOrCreateConversation(
   accountId: string,
   configOwnerUserId: string,
   contactId: string,
+  // Exact whatsapp_config row this inbound message arrived on — an
+  // account can now have up to 4 numbers, so the conversation is
+  // anchored to the one it's actually happening on rather than every
+  // send later re-resolving "the account's config" ambiguously.
+  configId: string,
 ) {
   // Look for existing conversation in this account
   const { data: existing, error: findError } = await supabaseAdmin()
@@ -1044,6 +1055,20 @@ async function findOrCreateConversation(
     .single()
 
   if (!findError && existing) {
+    // Self-heal conversations created before whatsapp_config_id existed
+    // (or via an outbound-first path with no number signal at the
+    // time) — best-effort, doesn't block message processing.
+    if (!existing.whatsapp_config_id) {
+      const { error: healError } = await supabaseAdmin()
+        .from('conversations')
+        .update({ whatsapp_config_id: configId })
+        .eq('id', existing.id)
+      if (healError) {
+        console.warn('[webhook] whatsapp_config_id backfill failed:', healError.message)
+      } else {
+        existing.whatsapp_config_id = configId
+      }
+    }
     return { conversation: existing, created: false }
   }
 
@@ -1055,6 +1080,7 @@ async function findOrCreateConversation(
       account_id: accountId,
       user_id: configOwnerUserId,
       contact_id: contactId,
+      whatsapp_config_id: configId,
     })
     .select()
     .single()

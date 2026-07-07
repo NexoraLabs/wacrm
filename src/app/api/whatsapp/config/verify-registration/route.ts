@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { decrypt } from '@/lib/whatsapp/encryption'
+import { resolveAnyWhatsappConfigForAccount } from '@/lib/whatsapp/resolve-config'
 import {
   getSubscribedApps,
   verifyPhoneNumber,
@@ -28,8 +29,9 @@ import {
  * rather than a generic error toast. The combined `live` flag is
  * what the UI badges on.
  */
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createClient()
+  const configId = new URL(request.url).searchParams.get('id')
   const {
     data: { user },
     error: authError,
@@ -38,9 +40,9 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  // whatsapp_config is one-row-per-account post-017. Resolve the
-  // caller's account_id so a teammate who joined an existing account
-  // sees the same registration state as the admin who set it up.
+  // Resolve the caller's account_id so a teammate who joined an
+  // existing account sees the same registration state as the admin
+  // who set it up.
   const { data: profile } = await supabase
     .from('profiles')
     .select('account_id')
@@ -55,11 +57,19 @@ export async function GET() {
     })
   }
 
-  const { data: config } = await supabase
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .maybeSingle()
+  // Accounts can have up to 4 numbers post-multi-number support — an
+  // explicit `?id=` targets one; without it, this falls back to the
+  // account's default (preserves old single-number behaviour).
+  const config = configId
+    ? (
+        await supabase
+          .from('whatsapp_config')
+          .select('*')
+          .eq('id', configId)
+          .eq('account_id', accountId)
+          .maybeSingle()
+      ).data
+    : await resolveAnyWhatsappConfigForAccount(supabase, accountId)
 
   if (!config) {
     return NextResponse.json({

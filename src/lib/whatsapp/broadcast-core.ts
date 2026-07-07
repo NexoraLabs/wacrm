@@ -111,10 +111,14 @@ export async function createBroadcast(
 
   // Config (fail fast + provides the audit trail owner already resolved
   // by the caller). Meta send needs phone_number_id + decrypted token.
+  // No existing conversation to anchor to for a fresh broadcast — always
+  // the account's `is_default` number (accounts can have up to 4 numbers
+  // post-multi-number support).
   const { data: config, error: configError } = await db
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
+    .eq('is_default', true)
     .single();
   if (configError || !config) {
     throw new BroadcastError(

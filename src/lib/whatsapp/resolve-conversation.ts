@@ -53,12 +53,16 @@ export async function resolveConversationByPhone(
     );
   }
 
-  // Fail fast (and create nothing) when the account has no WhatsApp
-  // connected — the same error the send would raise anyway.
+  // Fail fast (and create nothing) when the account has no default
+  // WhatsApp number connected — the same error the send would raise
+  // anyway. An account can have up to 4 numbers post-multi-number
+  // support; with no conversation yet to anchor to, this always uses
+  // the one marked `is_default`.
   const { data: config } = await db
     .from('whatsapp_config')
     .select('id')
     .eq('account_id', accountId)
+    .eq('is_default', true)
     .maybeSingle();
   if (!config) {
     throw new SendMessageError(
@@ -156,6 +160,7 @@ export async function resolveConversationByPhone(
       account_id: accountId,
       user_id: ownerUserId,
       contact_id: contactId,
+      whatsapp_config_id: config.id,
     })
     .select('id')
     .single();

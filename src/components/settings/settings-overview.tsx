@@ -113,21 +113,20 @@ export function SettingsOverview({
       setCountsLoading(false);
     })();
 
-    // WhatsApp connection status — slower, independent.
+    // WhatsApp connection status — slower, independent. Accounts can
+    // have up to 4 numbers post-multi-number support; this tile only
+    // needs "is at least one configured / connected", not which.
     (async () => {
       setWhatsappLoading(true);
-      const [row, health] = await Promise.allSettled([
-        supabase
-          .from('whatsapp_config')
-          .select('phone_number_id')
-          .eq('account_id', acctId)
-          .maybeSingle(),
-        fetch('/api/whatsapp/config', { cache: 'no-store' }).then((r) => r.json()),
-      ]);
+      const rows = await supabase
+        .from('whatsapp_config')
+        .select('phone_number_id, status')
+        .eq('account_id', acctId);
       if (cancelled) return;
+      const data = rows.data ?? [];
       setWhatsapp({
-        configured: row.status === 'fulfilled' && !!row.value.data?.phone_number_id,
-        connected: health.status === 'fulfilled' && !!health.value?.connected,
+        configured: data.length > 0,
+        connected: data.some((r) => r.status === 'connected'),
       });
       setWhatsappLoading(false);
     })();

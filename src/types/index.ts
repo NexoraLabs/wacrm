@@ -162,6 +162,12 @@ export interface Conversation {
    * agent turned it off manually. Sticky until re-enabled.
    */
   ai_autoreply_disabled?: boolean;
+  /**
+   * Which WhatsApp number (037_whatsapp_config_multi_number.sql) this
+   * thread arrived on / was started from. Null for conversations
+   * created before this column existed or whose config row was deleted.
+   */
+  whatsapp_config_id?: string | null;
   created_at: string;
   updated_at: string;
   contact?: Contact;
@@ -239,6 +245,7 @@ export interface MessageReaction {
 export interface WhatsAppConfig {
   id: string;
   user_id: string;
+  account_id: string;
   phone_number_id: string;
   waba_id?: string;
   access_token: string;
@@ -255,6 +262,14 @@ export interface WhatsAppConfig {
   subscribed_apps_at?: string;
   /** Last error from /register; cleared on success. */
   last_registration_error?: string;
+  /** Display name for this number (e.g. "Sales", "Support"). */
+  label?: string | null;
+  /**
+   * Which number outbound sends with no other signal should use —
+   * fresh broadcasts, template sends with no prior conversation.
+   * Exactly one row per account has this true (037_whatsapp_config_multi_number.sql).
+   */
+  is_default: boolean;
 }
 
 // Raw Meta status enum. We persist this verbatim from Meta (sync + webhook)

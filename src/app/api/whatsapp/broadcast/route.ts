@@ -134,10 +134,14 @@ export async function POST(request: Request) {
       )
     }
 
+    // A broadcast has no existing conversation to anchor to — always
+    // uses the account's number marked `is_default` (accounts can have
+    // up to 4 numbers post-multi-number support).
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
       .select('*')
       .eq('account_id', accountId)
+      .eq('is_default', true)
       .single()
 
     if (configError || !config) {

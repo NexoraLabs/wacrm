@@ -187,13 +187,17 @@ export default function InboxPage() {
         return;
       }
 
+      // Accounts can have up to 4 numbers post-multi-number support —
+      // the banner only needs to know whether AT LEAST ONE is
+      // connected, not which.
       const { data } = await supabase
         .from("whatsapp_config")
         .select("status")
         .eq("account_id", accountId)
-        .maybeSingle();
+        .eq("status", "connected")
+        .limit(1);
 
-      setWhatsappConnected(data?.status === "connected");
+      setWhatsappConnected((data?.length ?? 0) > 0);
     };
 
     checkConnection();

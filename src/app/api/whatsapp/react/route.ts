@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { sendReactionMessage } from '@/lib/whatsapp/meta-api';
 import { decrypt } from '@/lib/whatsapp/encryption';
+import { resolveWhatsappConfigForConversation } from '@/lib/whatsapp/resolve-config';
 import { sanitizePhoneForMeta } from '@/lib/whatsapp/phone-utils';
 import {
   checkRateLimit,
@@ -108,14 +109,16 @@ export async function POST(request: Request) {
       );
     }
 
-    // WhatsApp config + access token. Account-scoped post-multi-user.
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('phone_number_id, access_token')
-      .eq('account_id', accountId)
-      .single();
-
-    if (configError || !config) {
+    // WhatsApp config + access token — the conversation's own number
+    // if it has one, else the account's default.
+    let config;
+    try {
+      config = await resolveWhatsappConfigForConversation(
+        supabase,
+        accountId,
+        conversation.id,
+      );
+    } catch {
       return NextResponse.json(
         { error: 'WhatsApp not configured.' },
         { status: 400 },

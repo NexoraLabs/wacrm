@@ -230,12 +230,25 @@ async function findOrCreateConversation(
 
   if (existing) return existing.id
 
+  // No prior thread to anchor this conversation to a number — use the
+  // account's default (accounts can have up to 4 numbers post-multi-
+  // number support). Best-effort: a missing default just leaves the
+  // column null, which resolveWhatsappConfigForConversation falls back
+  // on anyway at send time.
+  const { data: defaultConfig } = await supabase
+    .from('whatsapp_config')
+    .select('id')
+    .eq('account_id', accountId)
+    .eq('is_default', true)
+    .maybeSingle()
+
   const { data: created, error } = await supabase
     .from('conversations')
     .insert({
       account_id: accountId,
       user_id: userId,
       contact_id: contactId,
+      whatsapp_config_id: defaultConfig?.id ?? null,
     })
     .select('id')
     .single()
