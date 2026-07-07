@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   extractVariableIndices,
   TEMPLATE_LIMITS,
+  validateAuthenticationPayload,
   validateBody,
   validateButtons,
   validateFooter,
@@ -121,6 +122,11 @@ describe('validateButtons', () => {
   it('accepts undefined / empty', () => {
     expect(() => validateButtons(undefined)).not.toThrow();
     expect(() => validateButtons([])).not.toThrow();
+  });
+  it('rejects an OTP button (AUTHENTICATION-only)', () => {
+    expect(() =>
+      validateButtons([{ type: 'OTP', otp_type: 'COPY_CODE' }]),
+    ).toThrow(/AUTHENTICATION/);
   });
   it('rejects > 10 buttons', () => {
     const tooMany = Array.from({ length: 11 }, () => ({
@@ -273,5 +279,100 @@ describe('validateTemplatePayload — integration', () => {
         body_text: 'Hi {{1}}',
       }),
     ).toThrow(/exactly 1 sample/);
+  });
+});
+
+const baseAuth: TemplatePayload = {
+  name: 'otp_login',
+  category: 'Authentication',
+  language: 'en_US',
+  body_text: 'placeholder — Meta generates the real text',
+  buttons: [{ type: 'OTP', otp_type: 'COPY_CODE' }],
+};
+
+describe('validateAuthenticationPayload', () => {
+  it('passes with a single COPY_CODE OTP button', () => {
+    expect(() => validateAuthenticationPayload(baseAuth)).not.toThrow();
+  });
+
+  it('throws when no OTP button is present', () => {
+    expect(() =>
+      validateAuthenticationPayload({ ...baseAuth, buttons: [] }),
+    ).toThrow(/exactly one OTP button/);
+  });
+
+  it('throws when a non-OTP button is mixed in', () => {
+    expect(() =>
+      validateAuthenticationPayload({
+        ...baseAuth,
+        buttons: [{ type: 'OTP', otp_type: 'COPY_CODE' }, { type: 'QUICK_REPLY', text: 'Hi' }],
+      }),
+    ).toThrow(/exactly one OTP button/);
+  });
+
+  it('requires package_name + signature_hash for ONE_TAP', () => {
+    expect(() =>
+      validateAuthenticationPayload({
+        ...baseAuth,
+        buttons: [{ type: 'OTP', otp_type: 'ONE_TAP' }],
+      }),
+    ).toThrow(/package_name/);
+    expect(() =>
+      validateAuthenticationPayload({
+        ...baseAuth,
+        buttons: [
+          { type: 'OTP', otp_type: 'ONE_TAP', package_name: 'com.example.app' },
+        ],
+      }),
+    ).toThrow(/signature_hash/);
+  });
+
+  it('passes for ONE_TAP with both Android fields set', () => {
+    expect(() =>
+      validateAuthenticationPayload({
+        ...baseAuth,
+        buttons: [
+          {
+            type: 'OTP',
+            otp_type: 'ONE_TAP',
+            package_name: 'com.example.app',
+            signature_hash: 'abc123',
+          },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects code_expiration_minutes outside 1-90', () => {
+    expect(() =>
+      validateAuthenticationPayload({ ...baseAuth, code_expiration_minutes: 0 }),
+    ).toThrow(/between 1 and 90/);
+    expect(() =>
+      validateAuthenticationPayload({ ...baseAuth, code_expiration_minutes: 91 }),
+    ).toThrow(/between 1 and 90/);
+    expect(() =>
+      validateAuthenticationPayload({ ...baseAuth, code_expiration_minutes: 10 }),
+    ).not.toThrow();
+  });
+});
+
+describe('validateTemplatePayload — AUTHENTICATION branch', () => {
+  it('routes to validateAuthenticationPayload and skips body/header/footer rules', () => {
+    expect(validateTemplatePayload(baseAuth)).toEqual({
+      bodyVarCount: 0,
+      headerVarCount: 0,
+    });
+  });
+
+  it('still enforces name + language for AUTHENTICATION', () => {
+    expect(() =>
+      validateTemplatePayload({ ...baseAuth, name: '' }),
+    ).toThrow(/name is required/i);
+  });
+
+  it('still throws AUTHENTICATION-specific errors through the main entry point', () => {
+    expect(() =>
+      validateTemplatePayload({ ...baseAuth, buttons: [] }),
+    ).toThrow(/exactly one OTP button/);
   });
 });

@@ -124,3 +124,75 @@ describe('buildMetaTemplatePayload', () => {
     ]);
   });
 });
+
+describe('buildMetaTemplatePayload — AUTHENTICATION', () => {
+  const authBase: TemplatePayload = {
+    name: 'otp_login',
+    category: 'Authentication',
+    language: 'en_US',
+    body_text: 'ignored for this category',
+    buttons: [{ type: 'OTP', otp_type: 'COPY_CODE' }],
+  };
+
+  it('emits a flag-only BODY with no HEADER, no text', () => {
+    const payload = buildMetaTemplatePayload(authBase);
+    expect(payload.category).toBe('AUTHENTICATION');
+    expect(payload.components).toEqual([
+      { type: 'BODY', add_security_recommendation: false },
+      { type: 'BUTTONS', buttons: [{ type: 'OTP', otp_type: 'COPY_CODE' }] },
+    ]);
+  });
+
+  it('sets add_security_recommendation from the payload flag', () => {
+    const payload = buildMetaTemplatePayload({
+      ...authBase,
+      add_security_recommendation: true,
+    });
+    const body = payload.components.find((c) => c.type === 'BODY');
+    expect(body?.add_security_recommendation).toBe(true);
+  });
+
+  it('emits a FOOTER with code_expiration_minutes when set, omits it otherwise', () => {
+    const withExpiry = buildMetaTemplatePayload({
+      ...authBase,
+      code_expiration_minutes: 10,
+    });
+    const footer = withExpiry.components.find((c) => c.type === 'FOOTER');
+    expect(footer).toEqual({ type: 'FOOTER', code_expiration_minutes: 10 });
+
+    const withoutExpiry = buildMetaTemplatePayload(authBase);
+    expect(withoutExpiry.components.some((c) => c.type === 'FOOTER')).toBe(false);
+  });
+
+  it('includes package_name + signature_hash for ONE_TAP', () => {
+    const payload = buildMetaTemplatePayload({
+      ...authBase,
+      buttons: [
+        {
+          type: 'OTP',
+          otp_type: 'ONE_TAP',
+          package_name: 'com.example.app',
+          signature_hash: 'abc123',
+        },
+      ],
+    });
+    const buttons = payload.components.find((c) => c.type === 'BUTTONS');
+    expect(buttons?.buttons).toEqual([
+      {
+        type: 'OTP',
+        otp_type: 'ONE_TAP',
+        package_name: 'com.example.app',
+        signature_hash: 'abc123',
+      },
+    ]);
+  });
+
+  it('ignores header/footer/regular-buttons fields even if present', () => {
+    const payload = buildMetaTemplatePayload({
+      ...authBase,
+      header_type: 'text',
+      header_content: 'Should be ignored',
+    });
+    expect(payload.components.some((c) => c.type === 'HEADER')).toBe(false);
+  });
+});

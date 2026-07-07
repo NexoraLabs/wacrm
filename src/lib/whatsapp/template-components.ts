@@ -18,6 +18,8 @@ export interface MetaComponent {
   format?: 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT';
   text?: string;
   buttons?: MetaButtonPayload[];
+  add_security_recommendation?: boolean;
+  code_expiration_minutes?: number;
   example?: {
     header_text?: string[];
     header_url?: string[];
@@ -27,11 +29,14 @@ export interface MetaComponent {
 }
 
 interface MetaButtonPayload {
-  type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'COPY_CODE';
-  text: string;
+  type: 'QUICK_REPLY' | 'URL' | 'PHONE_NUMBER' | 'COPY_CODE' | 'OTP';
+  text?: string;
   url?: string;
   phone_number?: string;
   example?: string[];
+  otp_type?: 'COPY_CODE' | 'ONE_TAP' | 'ZERO_TAP';
+  package_name?: string;
+  signature_hash?: string;
 }
 
 function buildHeaderComponent(payload: TemplatePayload): MetaComponent | null {
@@ -103,6 +108,12 @@ function buildButtonPayload(b: TemplateButton): MetaButtonPayload {
       return { type: 'PHONE_NUMBER', text: b.text, phone_number: b.phone_number };
     case 'COPY_CODE':
       return { type: 'COPY_CODE', text: b.text, example: [b.example] };
+    case 'OTP': {
+      const payload: MetaButtonPayload = { type: 'OTP', otp_type: b.otp_type };
+      if (b.package_name) payload.package_name = b.package_name;
+      if (b.signature_hash) payload.signature_hash = b.signature_hash;
+      return payload;
+    }
   }
 }
 
@@ -131,20 +142,46 @@ const CATEGORY_TO_META: Record<
 };
 
 /**
+ * AUTHENTICATION components: no HEADER, a flag-only BODY (Meta
+ * generates the actual localized text), an optional flag-only FOOTER,
+ * and exactly one OTP button. `validateAuthenticationPayload` already
+ * guarantees the OTP button exists by the time this runs.
+ */
+function buildAuthenticationComponents(payload: TemplatePayload): MetaComponent[] {
+  const components: MetaComponent[] = [
+    { type: 'BODY', add_security_recommendation: Boolean(payload.add_security_recommendation) },
+  ];
+  if (payload.code_expiration_minutes) {
+    components.push({ type: 'FOOTER', code_expiration_minutes: payload.code_expiration_minutes });
+  }
+  const otp = payload.buttons?.find((b) => b.type === 'OTP');
+  if (otp) {
+    components.push({ type: 'BUTTONS', buttons: [buildButtonPayload(otp)] });
+  }
+  return components;
+}
+
+/**
  * Assemble the full submit payload (name + category + language +
  * components in canonical order: HEADER → BODY → FOOTER → BUTTONS).
  */
 export function buildMetaTemplatePayload(
   payload: TemplatePayload,
 ): MetaTemplateSubmitPayload {
-  const components: MetaComponent[] = [];
-  const header = buildHeaderComponent(payload);
-  if (header) components.push(header);
-  components.push(buildBodyComponent(payload));
-  const footer = buildFooterComponent(payload);
-  if (footer) components.push(footer);
-  const buttons = buildButtonsComponent(payload);
-  if (buttons) components.push(buttons);
+  const components =
+    payload.category === 'Authentication'
+      ? buildAuthenticationComponents(payload)
+      : (() => {
+          const list: MetaComponent[] = [];
+          const header = buildHeaderComponent(payload);
+          if (header) list.push(header);
+          list.push(buildBodyComponent(payload));
+          const footer = buildFooterComponent(payload);
+          if (footer) list.push(footer);
+          const buttons = buildButtonsComponent(payload);
+          if (buttons) list.push(buttons);
+          return list;
+        })();
 
   return {
     name: payload.name,

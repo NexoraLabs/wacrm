@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { SettingsPanelHead } from './settings-panel-head';
 import {
@@ -62,6 +63,28 @@ const categoryColors: Record<string, string> = {
   Authentication: 'bg-amber-600/20 text-amber-400 border-amber-600/30',
 };
 
+/**
+ * AUTHENTICATION templates take no free-text body/footer — Meta
+ * generates the real localized copy from these two flags at review
+ * time. We only synthesize a preview so the local row (and this
+ * dialog) has something readable to show; `buildMetaTemplatePayload`
+ * never reads it for this category.
+ */
+function authBodyPreview(addSecurityRecommendation: boolean): string {
+  return (
+    '{{1}} is your verification code.' +
+    (addSecurityRecommendation ? ' For your security, do not share this code.' : '')
+  );
+}
+function authFooterPreview(expirationMinutes: number | undefined): string | undefined {
+  return expirationMinutes ? `This code expires in ${expirationMinutes} minutes.` : undefined;
+}
+
+// OTP is AUTHENTICATION-only, built from its own form fields below —
+// the regular buttons array never contains one.
+type StandardTemplateButton = Exclude<TemplateButton, { type: 'OTP' }>;
+type OtpType = 'COPY_CODE' | 'ONE_TAP' | 'ZERO_TAP';
+
 interface TemplateFormData {
   name: string;
   category: MessageTemplate['category'];
@@ -73,7 +96,14 @@ interface TemplateFormData {
   body_text: string;
   body_samples: string[];
   footer_text: string;
-  buttons: TemplateButton[];
+  buttons: StandardTemplateButton[];
+  // AUTHENTICATION-only fields — Meta generates the actual body/footer
+  // text from these rather than accepting free-text like other categories.
+  otp_type: OtpType;
+  otp_package_name: string;
+  otp_signature_hash: string;
+  add_security_recommendation: boolean;
+  code_expiration_minutes: string;
 }
 
 const emptyForm: TemplateFormData = {
@@ -88,6 +118,11 @@ const emptyForm: TemplateFormData = {
   body_samples: [],
   footer_text: '',
   buttons: [],
+  otp_type: 'COPY_CODE',
+  otp_package_name: '',
+  otp_signature_hash: '',
+  add_security_recommendation: true,
+  code_expiration_minutes: '',
 };
 
 const COMMON_LANGUAGE_CODES = [
@@ -110,7 +145,11 @@ const COMMON_LANGUAGE_CODES = [
   'lt',
 ];
 
-function emptyButton(type: TemplateButton['type']): TemplateButton {
+// OTP is AUTHENTICATION-only (built by its own form section below) —
+// this regular-button builder never offers it as a choice.
+type StandardButtonType = Exclude<TemplateButton['type'], 'OTP'>;
+
+function emptyButton(type: StandardButtonType): StandardTemplateButton {
   switch (type) {
     case 'QUICK_REPLY':
       return { type: 'QUICK_REPLY', text: '' };
@@ -204,6 +243,30 @@ export function TemplateManager() {
   }
 
   function buildSubmitPayload() {
+    if (form.category === 'Authentication') {
+      const expirationMinutes = form.code_expiration_minutes.trim()
+        ? Number.parseInt(form.code_expiration_minutes, 10)
+        : undefined;
+      const otpButton: TemplateButton = {
+        type: 'OTP',
+        otp_type: form.otp_type,
+        ...(form.otp_type !== 'COPY_CODE' && {
+          package_name: form.otp_package_name.trim(),
+          signature_hash: form.otp_signature_hash.trim(),
+        }),
+      };
+      return {
+        name: form.name.trim(),
+        category: form.category,
+        language: form.language.trim() || 'en_US',
+        body_text: authBodyPreview(form.add_security_recommendation),
+        footer_text: authFooterPreview(expirationMinutes),
+        buttons: [otpButton],
+        add_security_recommendation: form.add_security_recommendation,
+        code_expiration_minutes: expirationMinutes,
+      };
+    }
+
     const sample_values: TemplateSampleValues = {};
     if (form.body_samples.some((v) => v.trim())) {
       sample_values.body = form.body_samples.map((v) => v.trim());
@@ -233,6 +296,12 @@ export function TemplateManager() {
 
   function openEdit(template: MessageTemplate) {
     setEditingId(template.id);
+    const otp = template.buttons?.find(
+      (b): b is Extract<TemplateButton, { type: 'OTP' }> => b.type === 'OTP',
+    );
+    const standardButtons = (template.buttons ?? []).filter(
+      (b): b is StandardTemplateButton => b.type !== 'OTP',
+    );
     setForm({
       name: template.name,
       category: template.category,
@@ -244,7 +313,14 @@ export function TemplateManager() {
       body_text: template.body_text,
       body_samples: template.sample_values?.body ?? [],
       footer_text: template.footer_text ?? '',
-      buttons: template.buttons ?? [],
+      buttons: standardButtons,
+      otp_type: otp?.otp_type ?? 'COPY_CODE',
+      otp_package_name: otp?.package_name ?? '',
+      otp_signature_hash: otp?.signature_hash ?? '',
+      add_security_recommendation: template.add_security_recommendation ?? true,
+      code_expiration_minutes: template.code_expiration_minutes
+        ? String(template.code_expiration_minutes)
+        : '',
     });
     setDialogOpen(true);
   }
@@ -256,9 +332,6 @@ export function TemplateManager() {
   }
 
   async function handleSubmit() {
-    // AUTHENTICATION is blocked by the persistent banner + disabled
-    // submit button; this is a defensive second line of defense.
-    if (form.category === 'Authentication') return;
     try {
       setSubmitting(true);
       const isEdit = editingId !== null;
@@ -422,7 +495,7 @@ export function TemplateManager() {
     });
   }
 
-  function changeButtonType(index: number, type: TemplateButton['type']) {
+  function changeButtonType(index: number, type: StandardButtonType) {
     setForm((prev) => {
       const next = [...prev.buttons];
       next[index] = emptyButton(type);
@@ -654,10 +727,9 @@ export function TemplateManager() {
             <div className="flex items-start gap-2 rounded border border-amber-700/40 bg-amber-950/30 px-3 py-2 text-xs text-amber-300">
               <AlertCircle className="size-4 mt-0.5 shrink-0" />
               <p>
-                AUTHENTICATION templates have a fixed body + OTP button shape
-                that needs a different builder. Create them in Meta WhatsApp
-                Manager for now and use <strong>Sync from Meta</strong> to
-                bring them in.
+                AUTHENTICATION templates have a fixed body + footer — Meta
+                generates the actual wording from the options below, not
+                free text. Only the OTP button and these flags are yours to set.
               </p>
             </div>
           )}
@@ -738,6 +810,8 @@ export function TemplateManager() {
               </div>
             </div>
 
+            {form.category !== 'Authentication' && (
+            <>
             <div className="space-y-2">
               <Label className="text-muted-foreground">Header</Label>
               <Select
@@ -956,7 +1030,7 @@ export function TemplateManager() {
                             // (per PR 148): @base-ui Select fires
                             // onValueChange(null) on deselect.
                             if (!val) return;
-                            changeButtonType(i, val as TemplateButton['type']);
+                            changeButtonType(i, val as StandardButtonType);
                           }}
                         >
                           <SelectTrigger className="w-40 bg-muted border-border text-foreground h-8 text-xs">
@@ -1055,6 +1129,136 @@ export function TemplateManager() {
                 </div>
               )}
             </div>
+            </>
+            )}
+
+            {form.category === 'Authentication' && (
+              <>
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">OTP button type</Label>
+                  <Select
+                    value={form.otp_type}
+                    onValueChange={(val) => {
+                      if (!val) return;
+                      setForm({ ...form, otp_type: val as OtpType });
+                    }}
+                  >
+                    <SelectTrigger className="w-full bg-muted border-border text-foreground">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover border-border">
+                      <SelectItem
+                        value="COPY_CODE"
+                        className="text-popover-foreground focus:bg-muted focus:text-popover-foreground"
+                      >
+                        Copy Code
+                      </SelectItem>
+                      <SelectItem
+                        value="ONE_TAP"
+                        className="text-popover-foreground focus:bg-muted focus:text-popover-foreground"
+                      >
+                        One-Tap Autofill (Android)
+                      </SelectItem>
+                      <SelectItem
+                        value="ZERO_TAP"
+                        className="text-popover-foreground focus:bg-muted focus:text-popover-foreground"
+                      >
+                        Zero-Tap Autofill (Android)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-[11px] text-muted-foreground">
+                    Copy Code shows a button the customer taps to copy the
+                    code. One-Tap / Zero-Tap autofill it directly in your
+                    Android app instead.
+                  </p>
+                </div>
+
+                {(form.otp_type === 'ONE_TAP' || form.otp_type === 'ZERO_TAP') && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">Android package name</Label>
+                      <Input
+                        placeholder="com.example.app"
+                        value={form.otp_package_name}
+                        onChange={(e) =>
+                          setForm({ ...form, otp_package_name: e.target.value })
+                        }
+                        className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">APK signature hash</Label>
+                      <Input
+                        placeholder="e.g. K8a34kj..."
+                        value={form.otp_signature_hash}
+                        onChange={(e) =>
+                          setForm({ ...form, otp_signature_hash: e.target.value })
+                        }
+                        className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      Add security recommendation
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Appends &quot;For your security, do not share this code.&quot;
+                      to the body Meta generates.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={form.add_security_recommendation}
+                    onCheckedChange={(checked) =>
+                      setForm({ ...form, add_security_recommendation: checked })
+                    }
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">
+                    Code expiration (optional, 1-90 minutes)
+                  </Label>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="90"
+                    placeholder="e.g. 10"
+                    value={form.code_expiration_minutes}
+                    onChange={(e) =>
+                      setForm({ ...form, code_expiration_minutes: e.target.value })
+                    }
+                    className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Adds a footer telling the customer when the code expires.
+                    Leave blank for no footer.
+                  </p>
+                </div>
+
+                <div className="rounded border border-border bg-muted/50 p-3 space-y-1">
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    Preview (Meta generates the real text — this is indicative)
+                  </p>
+                  <p className="text-sm text-foreground">
+                    {authBodyPreview(form.add_security_recommendation)}
+                  </p>
+                  {authFooterPreview(
+                    form.code_expiration_minutes.trim()
+                      ? Number.parseInt(form.code_expiration_minutes, 10)
+                      : undefined,
+                  ) && (
+                    <p className="text-xs text-muted-foreground italic">
+                      {authFooterPreview(Number.parseInt(form.code_expiration_minutes, 10))}
+                    </p>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           <DialogFooter className="bg-popover border-border">
@@ -1067,7 +1271,7 @@ export function TemplateManager() {
             </Button>
             <Button
               onClick={handleSubmit}
-              disabled={submitting || form.category === 'Authentication'}
+              disabled={submitting}
               className="bg-primary hover:bg-primary/90 text-primary-foreground"
             >
               {submitting ? (

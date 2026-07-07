@@ -46,6 +46,10 @@ export interface TemplatePayload {
   footer_text?: string;
   buttons?: TemplateButton[];
   sample_values?: TemplateSampleValues;
+  /** AUTHENTICATION only. */
+  add_security_recommendation?: boolean;
+  /** AUTHENTICATION only — footer's "expires in N minutes" (1-90). */
+  code_expiration_minutes?: number;
 }
 
 export function validateTemplateName(name: string): void {
@@ -174,20 +178,40 @@ function countButtonsByType(
     URL: 0,
     PHONE_NUMBER: 0,
     COPY_CODE: 0,
+    OTP: 0,
   };
   for (const b of buttons) counts[b.type]++;
   return counts;
 }
 
+/** Every button type except OTP — the one that only ever belongs on an AUTHENTICATION template. */
+type StandardTemplateButton = Exclude<TemplateButton, { type: 'OTP' }>;
+
+/**
+ * OTP buttons are validated separately (`validateAuthenticationPayload`)
+ * and never belong in a regular template's button list — narrows the
+ * type so the rest of this function can rely on every button having a
+ * `text` field, and surfaces a clear error if one slips in anyway.
+ */
+function rejectOtpButtons(buttons: TemplateButton[]): StandardTemplateButton[] {
+  return buttons.map((b) => {
+    if (b.type === 'OTP') {
+      throw new Error('OTP buttons are only valid on AUTHENTICATION templates.');
+    }
+    return b;
+  });
+}
+
 export function validateButtons(buttons: TemplateButton[] | undefined): void {
   if (!buttons || buttons.length === 0) return;
-  if (buttons.length > TEMPLATE_LIMITS.maxButtonsTotal) {
+  const standardButtons = rejectOtpButtons(buttons);
+  if (standardButtons.length > TEMPLATE_LIMITS.maxButtonsTotal) {
     throw new Error(
-      `Templates can have at most ${TEMPLATE_LIMITS.maxButtonsTotal} buttons (got ${buttons.length}).`,
+      `Templates can have at most ${TEMPLATE_LIMITS.maxButtonsTotal} buttons (got ${standardButtons.length}).`,
     );
   }
 
-  const counts = countButtonsByType(buttons);
+  const counts = countButtonsByType(standardButtons);
   if (counts.URL > TEMPLATE_LIMITS.maxUrlButtons) {
     throw new Error(
       `At most ${TEMPLATE_LIMITS.maxUrlButtons} URL buttons allowed (got ${counts.URL}).`,
@@ -208,7 +232,7 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
   // interleaved with CTA buttons. Easiest check: walk the array; once
   // we leave the QUICK_REPLY block, we must not see another.
   let sawNonQR = false;
-  for (const b of buttons) {
+  for (const b of standardButtons) {
     if (b.type === 'QUICK_REPLY') {
       if (sawNonQR) {
         throw new Error(
@@ -220,8 +244,8 @@ export function validateButtons(buttons: TemplateButton[] | undefined): void {
     }
   }
 
-  for (let i = 0; i < buttons.length; i++) {
-    const b = buttons[i];
+  for (let i = 0; i < standardButtons.length; i++) {
+    const b = standardButtons[i];
     if (!b.text?.trim()) {
       throw new Error(`Button #${i + 1} (${b.type}) is missing text.`);
     }
@@ -314,9 +338,45 @@ export function validateSampleValues(
 }
 
 /**
+ * AUTHENTICATION templates take no free-text header/body/footer at
+ * all — Meta generates the BODY from the language + this flag, and the
+ * FOOTER (if any) from `code_expiration_minutes`. The only thing to
+ * validate is the single required OTP button (and, for ONE_TAP /
+ * ZERO_TAP, the Android app identifiers Meta needs for autofill).
+ */
+export function validateAuthenticationPayload(payload: TemplatePayload): void {
+  const buttons = payload.buttons ?? [];
+  const otpButtons = buttons.filter((b) => b.type === 'OTP');
+  if (buttons.length !== 1 || otpButtons.length !== 1) {
+    throw new Error('AUTHENTICATION templates require exactly one OTP button.');
+  }
+  const otp = otpButtons[0] as Extract<TemplateButton, { type: 'OTP' }>;
+  if (!['COPY_CODE', 'ONE_TAP', 'ZERO_TAP'].includes(otp.otp_type)) {
+    throw new Error('OTP button otp_type must be COPY_CODE, ONE_TAP, or ZERO_TAP.');
+  }
+  if (otp.otp_type === 'ONE_TAP' || otp.otp_type === 'ZERO_TAP') {
+    if (!otp.package_name?.trim()) {
+      throw new Error(`${otp.otp_type} requires the Android app's package_name.`);
+    }
+    if (!otp.signature_hash?.trim()) {
+      throw new Error(`${otp.otp_type} requires the Android app's signature_hash.`);
+    }
+  }
+  if (
+    payload.code_expiration_minutes !== undefined &&
+    (payload.code_expiration_minutes < 1 || payload.code_expiration_minutes > 90)
+  ) {
+    throw new Error('code_expiration_minutes must be between 1 and 90.');
+  }
+}
+
+/**
  * Run every validator. Throws on the first failure with a specific,
  * field-level message. Returns the variable counts so callers can
  * reuse them when building the Meta components payload.
+ *
+ * AUTHENTICATION is a completely different shape (no header/body/footer
+ * text, one OTP button) — branches to its own validator entirely.
  */
 export function validateTemplatePayload(payload: TemplatePayload): {
   bodyVarCount: number;
@@ -326,6 +386,12 @@ export function validateTemplatePayload(payload: TemplatePayload): {
   if (!payload.language?.trim()) {
     throw new Error('Language is required.');
   }
+
+  if (payload.category === 'Authentication') {
+    validateAuthenticationPayload(payload);
+    return { bodyVarCount: 0, headerVarCount: 0 };
+  }
+
   const bodyVars = validateBody(payload.body_text);
   validateFooter(payload.footer_text);
   const headerResult = validateHeader(payload);

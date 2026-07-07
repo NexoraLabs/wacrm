@@ -119,16 +119,6 @@ export async function PATCH(
       )
     }
 
-    if (payload.category === 'Authentication') {
-      return NextResponse.json(
-        {
-          error:
-            'AUTHENTICATION templates are not editable here — manage them in Meta WhatsApp Manager.',
-        },
-        { status: 400 },
-      )
-    }
-
     try {
       validateTemplatePayload(payload)
     } catch (e) {
@@ -195,6 +185,8 @@ export async function PATCH(
         footer_text: payload.footer_text ?? null,
         buttons: payload.buttons ?? null,
         sample_values: payload.sample_values ?? null,
+        add_security_recommendation: payload.add_security_recommendation ?? false,
+        code_expiration_minutes: payload.code_expiration_minutes ?? null,
         status: 'PENDING',
         submission_error: null,
         rejection_reason: null,

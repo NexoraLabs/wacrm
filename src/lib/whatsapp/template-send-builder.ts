@@ -156,6 +156,10 @@ function buttonNeedsSendParam(
       // gets a real code (either the caller's override or the
       // template's example as a default).
       return true;
+    case 'OTP':
+      // The one-time code has no template-side default (unlike
+      // COPY_CODE's `example`) — always requires a send-time value.
+      return true;
     case 'QUICK_REPLY':
     case 'PHONE_NUMBER':
       return override !== undefined;
@@ -187,6 +191,20 @@ function buildButtonComponent(
     }
     case 'COPY_CODE': {
       const code = override?.trim() || button.example;
+      return {
+        type: 'button',
+        sub_type: 'copy_code',
+        index: String(index),
+        parameters: [{ type: 'coupon_code', coupon_code: code }],
+      };
+    }
+    case 'OTP': {
+      const code = override?.trim();
+      if (!code) {
+        throw new Error(
+          `OTP button #${index + 1} requires the one-time code as a send-time value.`,
+        );
+      }
       return {
         type: 'button',
         sub_type: 'copy_code',

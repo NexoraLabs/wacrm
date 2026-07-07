@@ -46,6 +46,8 @@ function buildUpsertRow(
     footer_text: payload.footer_text ?? null,
     buttons: payload.buttons ?? null,
     sample_values: payload.sample_values ?? null,
+    add_security_recommendation: payload.add_security_recommendation ?? false,
+    code_expiration_minutes: payload.code_expiration_minutes ?? null,
     status: extras.status,
     meta_template_id: extras.metaTemplateId,
     submission_error: extras.submissionError,
@@ -114,16 +116,6 @@ export async function POST(request: Request) {
       payload = (await request.json()) as TemplatePayload
     } catch {
       return NextResponse.json({ error: 'Invalid JSON body.' }, { status: 400 })
-    }
-
-    if (payload.category === 'Authentication') {
-      return NextResponse.json(
-        {
-          error:
-            'AUTHENTICATION templates are not yet supported here — create them in Meta WhatsApp Manager and use "Sync from Meta".',
-        },
-        { status: 400 },
-      )
     }
 
     try {

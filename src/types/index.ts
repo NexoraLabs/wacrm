@@ -290,7 +290,15 @@ export type TemplateButton =
   | { type: 'QUICK_REPLY'; text: string }
   | { type: 'URL'; text: string; url: string; example?: string }
   | { type: 'PHONE_NUMBER'; text: string; phone_number: string }
-  | { type: 'COPY_CODE'; text: string; example: string };
+  | { type: 'COPY_CODE'; text: string; example: string }
+  | {
+      type: 'OTP';
+      otp_type: 'COPY_CODE' | 'ONE_TAP' | 'ZERO_TAP';
+      /** Required for ONE_TAP / ZERO_TAP — the Android app that autofills the code. */
+      package_name?: string;
+      /** Required for ONE_TAP / ZERO_TAP — the app's APK signing hash. */
+      signature_hash?: string;
+    };
 
 export interface TemplateSampleValues {
   body?: string[];
@@ -317,6 +325,10 @@ export interface MessageTemplate {
   quality_score?: 'GREEN' | 'YELLOW' | 'RED';
   submission_error?: string;
   last_submitted_at?: string;
+  /** AUTHENTICATION only — mirrors Meta's BODY-component flag. */
+  add_security_recommendation?: boolean;
+  /** AUTHENTICATION only — mirrors Meta's FOOTER-component flag (1-90). */
+  code_expiration_minutes?: number | null;
   created_at: string;
 }
 

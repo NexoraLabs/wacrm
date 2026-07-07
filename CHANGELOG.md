@@ -9,6 +9,27 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.10.0] — 2026-07-07
+
+Adds in-app support for building **AUTHENTICATION-category** message
+templates — previously the only category you had to leave wacrm to
+create, redirected to Meta's own Template Manager + "Sync from Meta".
+
+### Added
+
+- **AUTHENTICATION template builder (Settings → Templates).** Meta
+  generates the actual body/footer wording for this category from a
+  couple of flags rather than accepting free text, so the dialog swaps
+  out the usual header/body/footer/buttons fields for: OTP button type
+  (Copy Code, or One-Tap/Zero-Tap Android autofill with the app's
+  package name + signature hash), an "add security recommendation"
+  toggle, and an optional 1-90 minute code-expiration footer — with a
+  live preview of the Meta-generated text. Editing and resubmitting
+  work the same as other categories. **Migration required:** apply
+  `supabase/migrations/039_message_templates_authentication.sql` —
+  adds `add_security_recommendation` and `code_expiration_minutes` to
+  `message_templates`.
+
 ## [0.9.1] — 2026-07-07
 
 ### Fixed
