@@ -10,15 +10,21 @@
 
 ARG NODE_VERSION=20-alpine
 
+# Pulled from the AWS ECR Public mirror rather than docker.io directly —
+# Docker Hub rate-limits anonymous pulls per IP (429s under repeated
+# deploys); ECR Public mirrors the same official images without that
+# limit biting shared-host IPs like EasyPanel's.
+ARG NODE_IMAGE=public.ecr.aws/docker/library/node
+
 # ---- deps: install dependencies with a cached, reproducible install ----
-FROM node:${NODE_VERSION} AS deps
+FROM ${NODE_IMAGE}:${NODE_VERSION} AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 RUN npm ci
 
 # ---- builder: compile the Next.js app ----
-FROM node:${NODE_VERSION} AS builder
+FROM ${NODE_IMAGE}:${NODE_VERSION} AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -40,7 +46,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ---- runner: minimal production image ----
-FROM node:${NODE_VERSION} AS runner
+FROM ${NODE_IMAGE}:${NODE_VERSION} AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
