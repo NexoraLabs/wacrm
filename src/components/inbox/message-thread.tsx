@@ -26,6 +26,8 @@ import {
   RefreshCw,
   PanelRightOpen,
   PanelRightClose,
+  Bot,
+  BotOff,
 } from "lucide-react";
 import { format, isToday, isYesterday, differenceInHours } from "date-fns";
 import { Badge } from "@/components/ui/badge";
@@ -74,6 +76,8 @@ interface MessageThreadProps {
     conversationId: string,
     assignedAgentId: string | null,
   ) => void;
+  /** Fired when the agent flips the per-conversation AI auto-reply toggle. */
+  onAiAutoReplyChange: (conversationId: string, disabled: boolean) => void;
   /**
    * On mobile, the thread is shown full-screen with the conversation list
    * hidden. This callback lets the page deselect the active conversation
@@ -159,6 +163,7 @@ export function MessageThread({
   onUpdateMessage,
   onStatusChange,
   onAssignChange,
+  onAiAutoReplyChange,
   onBack,
   resyncToken = 0,
   onRefresh,
@@ -172,6 +177,12 @@ export function MessageThread({
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [reactions, setReactions] = useState<MessageReaction[]>([]);
+  // Whether the account has the AI assistant + auto-reply turned on at
+  // all (Settings → AI Assistant). The per-conversation toggle below is
+  // only meaningful — and only rendered — when this is true; there's
+  // nothing to turn off per-thread if the bot never replies for anyone.
+  const [aiAutoReplyAccountEnabled, setAiAutoReplyAccountEnabled] =
+    useState(false);
   // Purely visual spin state for the manual-refresh button. The actual
   // refetch is fire-and-forget through `onRefresh` (which bumps the
   // parent's resyncToken); the 700ms spin is just feedback so the click
@@ -213,6 +224,26 @@ export function MessageThread({
           return;
         }
         setProfiles((data as Profile[]) ?? []);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetched once — the account-wide switch rarely flips mid-session, and
+  // any staleness self-corrects on the next page load.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/ai/config")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setAiAutoReplyAccountEnabled(
+          Boolean(data.configured && data.is_active && data.auto_reply_enabled),
+        );
+      })
+      .catch(() => {
+        // Best-effort — the toggle just stays hidden if this fails.
       });
     return () => {
       cancelled = true;
@@ -778,6 +809,27 @@ export function MessageThread({
     [conversation, onAssignChange],
   );
 
+  const handleAiAutoReplyToggle = useCallback(
+    async (disabled: boolean) => {
+      if (!conversation) return;
+
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("conversations")
+        .update({ ai_autoreply_disabled: disabled })
+        .eq("id", conversation.id);
+
+      if (error) {
+        console.error("Failed to update AI auto-reply:", error);
+        toast.error("Failed to update AI auto-reply");
+        return;
+      }
+
+      onAiAutoReplyChange(conversation.id, disabled);
+    },
+    [conversation, onAiAutoReplyChange],
+  );
+
   // Empty state — same WhatsApp-style doodle background as the active
   // thread below, so swapping between empty/selected doesn't change the
   // pattern under the user's eye.
@@ -807,6 +859,7 @@ export function MessageThread({
   const assignLabel = assignedAgentId
     ? (currentAssignee?.full_name ?? "Assigned")
     : "Assign";
+  const aiAutoReplyDisabled = conversation.ai_autoreply_disabled ?? false;
 
   return (
     // `min-w-0` is load-bearing: the page already puts min-w-0 on the
@@ -994,6 +1047,38 @@ export function MessageThread({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* AI auto-reply toggle — only shown when the bot is enabled
+              for the account at all (Settings → AI Assistant); otherwise
+              there's nothing here to turn on or off. */}
+          {aiAutoReplyAccountEnabled && (
+            <button
+              type="button"
+              onClick={() => handleAiAutoReplyToggle(!aiAutoReplyDisabled)}
+              aria-label={
+                aiAutoReplyDisabled
+                  ? "AI auto-reply is off for this conversation — click to turn on"
+                  : "AI auto-reply is on for this conversation — click to turn off"
+              }
+              aria-pressed={!aiAutoReplyDisabled}
+              title={
+                aiAutoReplyDisabled
+                  ? "AI auto-reply: off for this chat"
+                  : "AI auto-reply: on for this chat"
+              }
+              className={cn(
+                "inline-flex h-7 items-center justify-center gap-1 rounded-md px-2 text-xs hover:bg-muted",
+                aiAutoReplyDisabled ? "text-muted-foreground" : "text-primary",
+              )}
+            >
+              {aiAutoReplyDisabled ? (
+                <BotOff className="h-3.5 w-3.5" />
+              ) : (
+                <Bot className="h-3.5 w-3.5" />
+              )}
+              <span className="hidden sm:inline">AI</span>
+            </button>
+          )}
         </div>
       </div>
 

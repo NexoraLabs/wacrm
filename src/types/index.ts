@@ -156,6 +156,12 @@ export interface Conversation {
   last_message_text?: string;
   last_message_at?: string;
   unread_count: number;
+  /**
+   * True once the AI auto-reply assistant has stopped replying on this
+   * thread — either it handed off (couldn't confidently answer) or an
+   * agent turned it off manually. Sticky until re-enabled.
+   */
+  ai_autoreply_disabled?: boolean;
   created_at: string;
   updated_at: string;
   contact?: Contact;
