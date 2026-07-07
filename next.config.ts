@@ -61,6 +61,10 @@ const SECURITY_HEADERS = [
 ] as const;
 
 const nextConfig: NextConfig = {
+  // Standalone output traces the minimal set of files/deps needed to
+  // run `node server.js` — this is what the Dockerfile's runtime
+  // stage copies, instead of shipping the whole node_modules tree.
+  output: "standalone",
   /**
    * Cache-Control policy.
    *
