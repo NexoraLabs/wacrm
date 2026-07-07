@@ -13,6 +13,10 @@ import type { AiProvider } from './types'
 export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
   openai: 'gpt-5.4-mini',
   anthropic: 'claude-haiku-4-5-20251001',
+  // OpenRouter proxies dozens of providers behind one OpenAI-compatible
+  // key — this is just a starting point, any "vendor/model" slug it
+  // lists works (e.g. "meta-llama/llama-3.3-70b-instruct", "google/gemini-2.0-flash-001").
+  openrouter: 'openai/gpt-4o-mini',
 }
 
 /**
