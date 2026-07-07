@@ -9,6 +9,69 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.9.1] — 2026-07-07
+
+### Fixed
+
+- **Video and document template headers couldn't actually be submitted.**
+  Meta requires a Resumable-Upload `header_handle` for *any* media
+  header at template-creation time, not just images — but the handle
+  derivation helper was image-only, so a VIDEO or DOCUMENT header saved
+  via a pasted URL would reach Meta with no handle and get rejected.
+  Generalized `ensureImageHeaderHandle` (now `ensureHeaderHandle`) to
+  cover all three: image (JPEG/PNG, ≤5 MB), video (MP4/3GPP, ≤16 MB),
+  document (PDF, ≤100 MB) — the same limits the template builder's UI
+  already advertised. No migration required; no UI changes — the
+  existing "paste a public link" field for video/document headers now
+  actually works.
+
+## [0.9.0] — 2026-07-07
+
+Adds a **product catalog** UI. The data model and API
+(`033_products.sql`, `034_product_specifications.sql`) existed only as
+grounding for the AI assistant, with no way to manage products short of
+calling the API directly.
+
+### Added
+
+- **Products (Settings → Products).** Add, edit, and delete catalog
+  entries — name, SKU, price/currency, description, supplier info,
+  image URLs, availability, structured specifications (key/value), and
+  a per-product AI instruction layered on top of the account-wide
+  system prompt. Feeds the AI assistant's replies and appears in the
+  Settings overview with a live count. Not required for the CRM to
+  work — the assistant just has less to quote from without it. No
+  migration required (033/034 already shipped the schema).
+
+### Fixed
+
+- **Delete-product dialog briefly showed `"undefined" will be
+  removed...`** during its closing animation, once the confirmed row
+  had already been cleared from state. Guarded the description on the
+  row still being set.
+
+## [0.8.1] — 2026-07-07
+
+### Fixed
+
+- **Template resubmit could shadow a teammate's template with the same
+  name.** The upsert behind "Submit for review" targeted
+  `UNIQUE(user_id, name, language)` — a leftover from before multi-user
+  accounts (0.3.0) — instead of the account. Two teammates could each
+  end up with their own row named e.g. `order_confirmation`, and a
+  resubmit by one could silently duplicate rather than update the
+  other's. **Migration required:** apply
+  `supabase/migrations/038_message_templates_account_scoped_unique.sql`
+  — moves the unique constraint from `(user_id, name, language)` to
+  `(account_id, name, language)`. Fails loudly with a copy-pasteable
+  query if an account already has duplicate rows, same pattern as
+  013/014.
+- **`rejection_reason` wasn't being cleared on resubmit.** A dead
+  ternary (`submissionError ? null : null`) meant the field was always
+  written as `null` regardless of outcome — functionally the same as
+  the intended "always clear," but written in a way that read as
+  broken conditional logic. Simplified to a direct `null` assignment.
+
 ## [0.8.0] — 2026-07-07
 
 Adds support for connecting several WhatsApp Business numbers to a
@@ -465,6 +528,11 @@ user physically cannot read messages routed to a different owner —
 two users sharing one number was never supported. If you need
 multiple humans handling the same inbox, run them under one shared
 account.
+
+_(Superseded by 0.3.0's multi-user accounts, below: RLS moved from
+`user_id` to `account_id`, so teammates on the same account now do
+share one inbox/number by design. This note describes the single-user
+model as it stood at 0.2.1, before that change.)_
 
 ## [0.2.0] — 2026-05-22
 

@@ -21,6 +21,7 @@ interface OverviewCounts {
   pendingInvites: number | null;
   templates: number | null;
   templatesPending: number | null;
+  products: number | null;
   tags: number | null;
   customFields: number | null;
 }
@@ -58,29 +59,40 @@ export function SettingsOverview({
     // Cheap counts — resolve fast, render immediately.
     (async () => {
       setCountsLoading(true);
-      const [membersRes, invitesRes, templatesTotal, templatesPending, tagsRes, fieldsRes] =
-        await Promise.allSettled([
-          fetch('/api/account/members', { cache: 'no-store' }).then((r) => r.json()),
-          canManageMembers
-            ? fetch('/api/account/invitations', { cache: 'no-store' }).then((r) =>
-                r.json(),
-              )
-            : Promise.resolve(null),
-          supabase
-            .from('message_templates')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId),
-          supabase
-            .from('message_templates')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId)
-            .eq('status', 'PENDING'),
-          supabase
-            .from('tags')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId),
-          supabase.from('custom_fields').select('id', { count: 'exact', head: true }),
-        ]);
+      const [
+        membersRes,
+        invitesRes,
+        templatesTotal,
+        templatesPending,
+        productsRes,
+        tagsRes,
+        fieldsRes,
+      ] = await Promise.allSettled([
+        fetch('/api/account/members', { cache: 'no-store' }).then((r) => r.json()),
+        canManageMembers
+          ? fetch('/api/account/invitations', { cache: 'no-store' }).then((r) =>
+              r.json(),
+            )
+          : Promise.resolve(null),
+        supabase
+          .from('message_templates')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId),
+        supabase
+          .from('message_templates')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId)
+          .eq('status', 'PENDING'),
+        supabase
+          .from('products')
+          .select('id', { count: 'exact', head: true })
+          .eq('account_id', acctId),
+        supabase
+          .from('tags')
+          .select('id', { count: 'exact', head: true })
+          .eq('user_id', userId),
+        supabase.from('custom_fields').select('id', { count: 'exact', head: true }),
+      ]);
 
       if (cancelled) return;
 
@@ -106,6 +118,8 @@ export function SettingsOverview({
           templatesPending.status === 'fulfilled'
             ? templatesPending.value.count ?? null
             : null,
+        products:
+          productsRes.status === 'fulfilled' ? productsRes.value.count ?? null : null,
         tags: tagsRes.status === 'fulfilled' ? tagsRes.value.count ?? null : null,
         customFields:
           fieldsRes.status === 'fulfilled' ? fieldsRes.value.count ?? null : null,
@@ -193,6 +207,14 @@ export function SettingsOverview({
                 ? ` · ${counts.templatesPending} pending review`
                 : ''
             }`,
+    },
+    {
+      section: 'products',
+      loading: countsLoading,
+      subtitle:
+        counts?.products == null
+          ? 'Products for the AI assistant to quote'
+          : `${counts.products} product${counts.products === 1 ? '' : 's'}`,
     },
     {
       section: 'deals',

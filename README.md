@@ -39,7 +39,9 @@ clone or fork it to run your own CRM.
   auto-reply bot with a per-conversation cap and clean human handoff.
   Add a **knowledge base** (FAQs, policies, product docs) and it
   answers from your own content — hybrid retrieval (Postgres full-text,
-  or semantic pgvector when an embeddings key is set).
+  or semantic pgvector when an embeddings key is set). A **product
+  catalog** (Settings → Products) gives it exact prices, specs, and
+  availability to quote instead of guessing.
 - **Real-time dashboard** — response times, daily volume, pipeline
   value, cross-module activity feed.
 - **Team accounts** — invite teammates by link, role-based access

@@ -9,7 +9,7 @@ import {
   type TemplatePayload,
 } from '@/lib/whatsapp/template-validators'
 import { buildMetaTemplatePayload } from '@/lib/whatsapp/template-components'
-import { ensureImageHeaderHandle } from '@/lib/whatsapp/template-header-handle'
+import { ensureHeaderHandle } from '@/lib/whatsapp/template-header-handle'
 import { normalizeStatus } from '@/lib/whatsapp/template-status-normalize'
 
 /**
@@ -32,9 +32,8 @@ function buildUpsertRow(
     // of migration 017. Without this an INSERT throws on the
     // not-null constraint.
     account_id: accountId,
-    // Original author — kept as audit only. The unique index is
-    // still on (user_id, name, language) — see the upsert helper
-    // for the cross-teammate dedup follow-up.
+    // Original author — audit only. Uniqueness is on (account_id,
+    // name, language) as of migration 038 — see the upsert helper.
     user_id: userId,
     name: payload.name,
     category: payload.category,
@@ -50,9 +49,11 @@ function buildUpsertRow(
     status: extras.status,
     meta_template_id: extras.metaTemplateId,
     submission_error: extras.submissionError,
-    // Clear stale rejection_reason whenever we re-submit; the
-    // webhook will set it again if Meta still rejects.
-    rejection_reason: extras.submissionError ? null : null,
+    // Always cleared on (re)submit, success or failure — a prior
+    // rejection_reason came from Meta's async review of a *previous*
+    // submission and no longer applies once a new one is in flight.
+    // The webhook sets it again if Meta rejects this one too.
+    rejection_reason: null,
     last_submitted_at: new Date().toISOString(),
   }
 }
@@ -61,14 +62,9 @@ async function upsertTemplateRow(
   supabase: SupabaseClient,
   row: ReturnType<typeof buildUpsertRow>,
 ) {
-  // TODO(account-sharing): conflict target is still scoped to
-  // user_id. Once a follow-up migration drops the legacy unique
-  // index on (user_id, name, language) and adds (account_id,
-  // name, language), switch `onConflict` here so two teammates
-  // can't shadow each other's same-named template.
   return supabase
     .from('message_templates')
-    .upsert(row, { onConflict: 'user_id,name,language' })
+    .upsert(row, { onConflict: 'account_id,name,language' })
     .select()
     .single()
 }
@@ -174,15 +170,16 @@ export async function POST(request: Request) {
 
       const accessToken = decrypt(config.access_token)
 
-      // Image headers need a Resumable-Upload handle (Meta rejects a
-      // plain URL at creation). Derive it from header_media_url before
-      // building the payload. Surfaces a 400 with an actionable message
-      // (missing META_APP_ID, unreachable URL, wrong type/size).
+      // Media headers (image/video/document) need a Resumable-Upload
+      // handle (Meta rejects a plain URL at creation). Derive it from
+      // header_media_url before building the payload. Surfaces a 400
+      // with an actionable message (missing META_APP_ID, unreachable
+      // URL, wrong type/size).
       try {
-        await ensureImageHeaderHandle(payload, accessToken)
+        await ensureHeaderHandle(payload, accessToken)
       } catch (e) {
         return NextResponse.json(
-          { error: e instanceof Error ? e.message : 'Header image upload failed.' },
+          { error: e instanceof Error ? e.message : 'Header media upload failed.' },
           { status: 400 },
         )
       }
