@@ -853,22 +853,23 @@ function useUserTags(): UserTag[] {
 // ============================================================
 
 interface SendMediaCfg {
-  media_type?: "image" | "video" | "document";
+  media_type?: "image" | "video" | "document" | "audio";
   media_url?: string;
   caption?: string;
   filename?: string;
   next_node_key?: string;
 }
 
-// Mirrors the bucket's allowed_mime_types from migration 016. Kept in
-// sync with the storage policy so the picker rejects unsupported files
-// before they hit the network rather than failing with a confusing
-// Supabase RLS / mime-type error.
+// Mirrors the bucket's allowed_mime_types from migrations 016 + 035.
+// Kept in sync with the storage policy so the picker rejects
+// unsupported files before they hit the network rather than failing
+// with a confusing Supabase RLS / mime-type error.
 const MEDIA_ACCEPT: Record<NonNullable<SendMediaCfg["media_type"]>, string> = {
   image: "image/png,image/jpeg,image/webp",
   video: "video/mp4,video/3gpp",
   document:
     "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain",
+  audio: "audio/ogg,audio/mpeg,audio/aac,audio/mp4,audio/amr",
 };
 
 const FLOW_MEDIA_BUCKET = "flow-media";
@@ -889,6 +890,7 @@ function SendMediaForm({
 
   const mediaType = cfg.media_type ?? "image";
   const isDocument = mediaType === "document";
+  const isAudio = mediaType === "audio";
   const displayName =
     cfg.filename ||
     (cfg.media_url ? cfg.media_url.split("/").pop() ?? "" : "");
@@ -941,6 +943,9 @@ function SendMediaForm({
               media_type: v as NonNullable<SendMediaCfg["media_type"]>,
               media_url: "",
               filename: "",
+              // Audio never carries a caption (Meta rejects it) — drop
+              // any caption left over from a previous type.
+              ...(v === "audio" ? { caption: "" } : {}),
             });
           }}
         >
@@ -953,6 +958,7 @@ function SendMediaForm({
             <SelectItem value="document">
               Document (PDF, Word, Excel, PowerPoint, TXT)
             </SelectItem>
+            <SelectItem value="audio">Audio (voice note)</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -1015,12 +1021,14 @@ function SendMediaForm({
         />
       </div>
 
-      <TextRow
-        label="Caption (optional, shown under the media)"
-        value={cfg.caption ?? ""}
-        onChange={(v) => onUpdateConfig({ caption: v })}
-        rows={2}
-      />
+      {!isAudio && (
+        <TextRow
+          label="Caption (optional, shown under the media)"
+          value={cfg.caption ?? ""}
+          onChange={(v) => onUpdateConfig({ caption: v })}
+          rows={2}
+        />
+      )}
 
       {isDocument && (
         <div>

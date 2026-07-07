@@ -4,6 +4,7 @@ import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit
 import { loadAiConfig } from '@/lib/ai/config'
 import { buildConversationContext } from '@/lib/ai/context'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
+import { resolveProductPromptContext } from '@/lib/ai/product-context'
 import { generateReply } from '@/lib/ai/generate'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { latestUserMessage } from '@/lib/ai/query'
@@ -96,10 +97,17 @@ export async function POST(request: Request) {
       latestUserMessage(messages),
     )
 
+    const productContext = await resolveProductPromptContext(
+      supabase,
+      accountId,
+      conversationId,
+    )
+
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'draft',
       knowledge,
+      extraInstruction: productContext ?? undefined,
     })
 
     const { text } = await generateReply({ config, systemPrompt, messages })

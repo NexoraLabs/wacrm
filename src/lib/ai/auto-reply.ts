@@ -2,6 +2,7 @@ import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
+import { resolveProductPromptContext } from './product-context'
 import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { latestUserMessage } from './query'
@@ -87,10 +88,17 @@ export async function dispatchInboundToAiReply(
       latestUserMessage(messages),
     )
 
+    const productContext = await resolveProductPromptContext(
+      db,
+      accountId,
+      conversationId,
+    )
+
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
       knowledge,
+      extraInstruction: productContext ?? undefined,
     })
 
     const { text, handoff } = await generateReply({

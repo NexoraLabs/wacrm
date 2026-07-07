@@ -244,21 +244,21 @@ function validateNode(
 
     case "send_media": {
       const cfg = node.config as {
-        media_type?: "image" | "video" | "document";
+        media_type?: "image" | "video" | "document" | "audio";
         media_url?: string;
         caption?: string;
         next_node_key?: string;
       };
       if (
         !cfg.media_type ||
-        !["image", "video", "document"].includes(cfg.media_type)
+        !["image", "video", "document", "audio"].includes(cfg.media_type)
       ) {
         issues.push({
           severity: "error",
           scope: "node",
           node_key: node.node_key,
           field: "media_type",
-          message: "Send-media node needs a media type (image, video, or document).",
+          message: "Send-media node needs a media type (image, video, document, or audio).",
         });
       }
       if (!cfg.media_url?.trim()) {

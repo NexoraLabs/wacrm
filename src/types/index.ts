@@ -299,6 +299,27 @@ export interface MessageTemplate {
   created_at: string;
 }
 
+export interface Product {
+  id: string;
+  account_id: string;
+  created_by?: string;
+  name: string;
+  sku?: string | null;
+  description?: string | null;
+  price: number;
+  currency: string;
+  supplier_name?: string | null;
+  supplier_url?: string | null;
+  image_urls: string[];
+  is_available: boolean;
+  /** Per-product instructions layered on top of ai_configs.system_prompt. */
+  ai_prompt?: string | null;
+  /** Structured attributes (color, material, warranty, shipping time, ...). */
+  specifications: Record<string, string>;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Pipeline {
   id: string;
   user_id: string;
@@ -329,6 +350,8 @@ export interface Deal {
   contact_id: string | null;
   conversation_id?: string;
   assigned_to?: string;
+  /** Which product (033_products.sql) this opportunity is for, if any. */
+  product_id?: string;
   title: string;
   value: number;
   currency?: string;
@@ -338,6 +361,7 @@ export interface Deal {
   created_at: string;
   updated_at?: string;
   contact?: Contact;
+  product?: Product;
   stage?: PipelineStage;
   assignee?: Profile;
 }

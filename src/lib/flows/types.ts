@@ -82,15 +82,19 @@ export interface SendListNodeConfig {
  * meaningful behavioural difference.
  */
 export interface SendMediaNodeConfig {
-  media_type: "image" | "video" | "document";
+  media_type: "image" | "video" | "document" | "audio";
   /** Public URL Meta will fetch. Uploaded via the builder's file picker. */
   media_url: string;
-  /** Optional caption shown under the media (Meta caps at 1024 chars). */
+  /**
+   * Optional caption shown under the media (Meta caps at 1024 chars).
+   * Audio does not accept a caption — Meta rejects it (see
+   * sendMediaMessage in meta-api.ts).
+   */
   caption?: string;
   /**
    * Filename shown in the recipient's chat. Documents only — Meta
-   * ignores it for image/video. Defaults to the file's original name
-   * at upload time; the user can edit it.
+   * ignores it for image/video/audio. Defaults to the file's original
+   * name at upload time; the user can edit it.
    */
   filename?: string;
   /** Auto-advance target after the send lands at Meta. */

@@ -20,6 +20,7 @@ import { engineSendText, engineSendTemplate } from './meta-send'
 import { loadAiConfig } from '@/lib/ai/config'
 import { buildConversationContext } from '@/lib/ai/context'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
+import { resolveProductPromptContext } from '@/lib/ai/product-context'
 import { generateReply } from '@/lib/ai/generate'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { latestUserMessage } from '@/lib/ai/query'
@@ -417,11 +418,20 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         aiConfig,
         latestUserMessage(messages),
       )
+      const productContext = await resolveProductPromptContext(
+        db,
+        args.automation.account_id,
+        conversationId,
+      )
+      const extraInstruction = [productContext, interpolate(cfg.prompt, args)]
+        .filter((s): s is string => Boolean(s && s.trim()))
+        .join('\n\n')
+
       const systemPrompt = buildSystemPrompt({
         userPrompt: aiConfig.systemPrompt,
         mode: 'draft',
         knowledge,
-        extraInstruction: interpolate(cfg.prompt, args),
+        extraInstruction,
       })
       const { text } = await generateReply({ config: aiConfig, systemPrompt, messages })
       if (!text.trim()) throw new Error('AI generated an empty reply')
