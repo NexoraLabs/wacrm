@@ -9,6 +9,40 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.8.0] — 2026-07-07
+
+Adds support for connecting several WhatsApp Business numbers to a
+single account, so businesses running more than one line (e.g. "Sales"
+and "Support") no longer have to split them across separate accounts.
+
+### Added
+
+- **Multi-number WhatsApp (up to 4 per account).** Settings →
+  WhatsApp moves from a single connection form to a list of cards — add,
+  remove, or mark a number as **default**. Every number connects
+  through Meta's official Cloud API only (no QR / unofficial protocol).
+  Each conversation is anchored to the exact number it arrived on;
+  sends with no prior conversation (fresh broadcasts, templates to new
+  contacts) go out through whichever number is marked default.
+  **Migration required:** apply
+  `supabase/migrations/037_whatsapp_config_multi_number.sql` — it drops
+  the old one-number-per-account constraint, adds `label` and
+  `is_default` to `whatsapp_config`, and adds `whatsapp_config_id` to
+  `conversations`.
+
+## [0.7.1] — 2026-07-07
+
+### Added
+
+- **Per-conversation AI/human toggle.** A switch in the chat header
+  turns the AI auto-reply bot on or off for that one conversation,
+  independent of the account-wide setting in Settings → AI Assistant
+  (the switch only appears when the account has auto-reply enabled at
+  all). A badge on each message now distinguishes bot replies from
+  messages sent by a human agent. No migration required — uses the
+  existing `conversations.ai_autoreply_disabled` column from
+  `029_ai_reply.sql`.
+
 ## [0.7.0] — 2026-07-02
 
 Promotes the AI assistant to a first-class **AI Agents** section in the
