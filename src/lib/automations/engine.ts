@@ -1,5 +1,6 @@
 import type {
   Automation,
+  AiReplyStepConfig,
   AutomationLogStepResult,
   AutomationStep,
   AutomationTriggerType,
@@ -16,6 +17,12 @@ import type {
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
 import { engineSendText, engineSendTemplate } from './meta-send'
+import { loadAiConfig } from '@/lib/ai/config'
+import { buildConversationContext } from '@/lib/ai/context'
+import { retrieveKnowledge } from '@/lib/ai/knowledge'
+import { generateReply } from '@/lib/ai/generate'
+import { buildSystemPrompt } from '@/lib/ai/defaults'
+import { latestUserMessage } from '@/lib/ai/query'
 
 // ------------------------------------------------------------
 // Public API
@@ -390,6 +397,43 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
         params,
       })
       return `template sent via Meta (${whatsapp_message_id})`
+    }
+
+    case 'ai_reply': {
+      const cfg = step.step_config as AiReplyStepConfig
+      if (!args.contactId) throw new Error('ai_reply needs a contact')
+      if (!cfg.prompt || !cfg.prompt.trim()) throw new Error('ai_reply needs a prompt')
+      const conversationId = await resolveConversationId(args)
+
+      const aiConfig = await loadAiConfig(db, args.automation.account_id)
+      if (!aiConfig) {
+        throw new Error('AI assistant is not set up for this account (Settings → AI Assistant)')
+      }
+
+      const messages = await buildConversationContext(db, conversationId)
+      const knowledge = await retrieveKnowledge(
+        db,
+        args.automation.account_id,
+        aiConfig,
+        latestUserMessage(messages),
+      )
+      const systemPrompt = buildSystemPrompt({
+        userPrompt: aiConfig.systemPrompt,
+        mode: 'draft',
+        knowledge,
+        extraInstruction: interpolate(cfg.prompt, args),
+      })
+      const { text } = await generateReply({ config: aiConfig, systemPrompt, messages })
+      if (!text.trim()) throw new Error('AI generated an empty reply')
+
+      const { whatsapp_message_id } = await engineSendText({
+        accountId: args.automation.account_id,
+        userId: args.automation.user_id,
+        conversationId,
+        contactId: args.contactId,
+        text,
+      })
+      return `AI reply sent via Meta (${whatsapp_message_id})`
     }
 
     case 'add_tag': {

@@ -12,7 +12,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { ArrowLeft, ArrowRight, Eye, ImageIcon, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Eye, ImageIcon, Loader2, Sparkles } from 'lucide-react';
+import { toast } from 'sonner';
 
 type VariableType = 'static' | 'field' | 'custom_field';
 
@@ -346,14 +347,19 @@ export function Step3Personalize({
                       {mapping.type === 'static' ? 'Value' : 'Field'}
                     </label>
                     {mapping.type === 'static' ? (
-                      <Input
-                        value={mapping.value}
-                        onChange={(e) =>
-                          updateVariable(key, { value: e.target.value })
-                        }
-                        placeholder="Enter value..."
-                        className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
-                      />
+                      <>
+                        <Input
+                          value={mapping.value}
+                          onChange={(e) =>
+                            updateVariable(key, { value: e.target.value })
+                          }
+                          placeholder="Enter value..."
+                          className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+                        />
+                        <AiVariableGenerator
+                          onGenerated={(text) => updateVariable(key, { value: text })}
+                        />
+                      </>
                     ) : mapping.type === 'field' ? (
                       <Select
                         value={mapping.value || undefined}
@@ -455,6 +461,87 @@ export function Step3Personalize({
           <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Inline "Generate with AI" affordance for a static template variable.
+ * Collapsed to a text button by default; expands to a one-line
+ * instruction + Generate action. Uses the account's configured AI
+ * assistant (Settings → AI Assistant) — no conversation involved, just
+ * a short copywriting instruction.
+ */
+function AiVariableGenerator({
+  onGenerated,
+}: {
+  onGenerated: (text: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [instruction, setInstruction] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  async function handleGenerate() {
+    const trimmed = instruction.trim();
+    if (!trimmed) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/ai/generate-text', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction: trimmed }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error ?? 'Failed to generate text');
+        return;
+      }
+      onGenerated(typeof data.text === 'string' ? data.text : '');
+      setOpen(false);
+      setInstruction('');
+    } catch {
+      toast.error('Failed to generate text');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+      >
+        <Sparkles className="h-3 w-3" />
+        Generate with AI
+      </button>
+      {open && (
+        <div className="mt-1.5 flex gap-2">
+          <Input
+            value={instruction}
+            onChange={(e) => setInstruction(e.target.value)}
+            placeholder="e.g. 20% off summer sale, friendly and urgent"
+            className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleGenerate();
+              }
+            }}
+            autoFocus
+          />
+          <Button
+            type="button"
+            size="sm"
+            onClick={handleGenerate}
+            disabled={loading || !instruction.trim()}
+            className="shrink-0"
+          >
+            {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Generate'}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

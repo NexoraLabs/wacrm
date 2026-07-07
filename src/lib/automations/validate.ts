@@ -63,6 +63,11 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
         issues.push({ path: `${path}.template_name`, message: 'template name is required' })
       }
       break
+    case 'ai_reply':
+      if (!nonEmpty(c.prompt)) {
+        issues.push({ path: `${path}.prompt`, message: 'AI reply prompt is required' })
+      }
+      break
     case 'add_tag':
     case 'remove_tag':
       if (!nonEmpty(c.tag_id)) {

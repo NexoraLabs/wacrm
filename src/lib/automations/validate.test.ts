@@ -42,6 +42,21 @@ describe("validateStepsForActivation", () => {
     ]);
   });
 
+  it("requires a non-empty prompt for ai_reply", () => {
+    expect(
+      validateStepsForActivation([
+        { step_type: "ai_reply", step_config: { prompt: "  " } },
+      ]),
+    ).toEqual([
+      { path: "steps[0].prompt", message: "AI reply prompt is required" },
+    ]);
+    expect(
+      validateStepsForActivation([
+        { step_type: "ai_reply", step_config: { prompt: "Offer two time slots" } },
+      ]),
+    ).toEqual([]);
+  });
+
   it("checks wait amount and unit boundaries", () => {
     const issues = validateStepsForActivation([
       { step_type: "wait", step_config: { amount: 0, unit: "minutes" } },

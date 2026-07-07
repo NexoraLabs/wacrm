@@ -405,6 +405,7 @@ export type AutomationTriggerType =
 export type AutomationStepType =
   | 'send_message'
   | 'send_template'
+  | 'ai_reply'
   | 'add_tag'
   | 'remove_tag'
   | 'assign_conversation'
@@ -448,6 +449,13 @@ export interface SendTemplateStepConfig {
   template_name: string;
   language?: string;
   variables?: Record<string, string>;
+}
+
+export interface AiReplyStepConfig {
+  /** Task-specific instruction layered on top of the account's AI
+   *  business context (Settings → AI Assistant). e.g. "Ask if they
+   *  still want the appointment and offer two time slots." */
+  prompt: string;
 }
 
 export interface TagStepConfig {
@@ -507,6 +515,7 @@ export interface SendWebhookStepConfig {
 export type AutomationStepConfig =
   | SendMessageStepConfig
   | SendTemplateStepConfig
+  | AiReplyStepConfig
   | TagStepConfig
   | AssignConversationStepConfig
   | UpdateContactFieldStepConfig

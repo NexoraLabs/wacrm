@@ -30,6 +30,7 @@ import {
   Loader2,
   ArrowDown,
   ArrowUp,
+  Sparkles,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -90,6 +91,7 @@ interface StepMeta {
 const STEP_META: Record<AutomationStepType, StepMeta> = {
   send_message: { label: "Send Message", icon: MessageSquare, border: "border-l-primary" },
   send_template: { label: "Send Template", icon: FileText, border: "border-l-primary" },
+  ai_reply: { label: "AI Reply", icon: Sparkles, border: "border-l-primary" },
   add_tag: { label: "Add Tag", icon: Tag, border: "border-l-primary" },
   remove_tag: { label: "Remove Tag", icon: TagIcon, border: "border-l-primary" },
   assign_conversation: { label: "Assign Conversation", icon: UserCheck, border: "border-l-primary" },
@@ -104,6 +106,7 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
 const ADDABLE_STEPS: AutomationStepType[] = [
   "send_message",
   "send_template",
+  "ai_reply",
   "add_tag",
   "remove_tag",
   "assign_conversation",
@@ -144,6 +147,8 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
       return { text: "" }
     case "send_template":
       return { template_name: "", language: "en_US" }
+    case "ai_reply":
+      return { prompt: "" }
     case "add_tag":
     case "remove_tag":
       return { tag_id: "" }
@@ -1194,6 +1199,22 @@ function StepEditor({
           onChange={(patch) => set(patch)}
         />
       )
+    case "ai_reply":
+      return (
+        <FieldBlock label="Instructions for the AI">
+          <Textarea
+            value={(cfg.prompt as string) ?? ""}
+            onChange={(e) => set({ prompt: e.target.value })}
+            placeholder="e.g. Ask if they still want the appointment and offer two time slots this week."
+            className="min-h-24 bg-muted text-foreground"
+          />
+          <p className="mt-1.5 text-xs text-muted-foreground">
+            The AI writes and sends the reply using the conversation history plus
+            your Business context from Settings → AI Assistant. Requires the AI
+            assistant to be configured.
+          </p>
+        </FieldBlock>
+      )
     case "add_tag":
     case "remove_tag":
       return (
@@ -1389,6 +1410,8 @@ function previewFor(step: BuilderStep): string {
       return (step.step_config.text as string) || "no text yet"
     case "send_template":
       return (step.step_config.template_name as string) || "pick a template"
+    case "ai_reply":
+      return (step.step_config.prompt as string) || "no instructions yet"
     case "wait":
       return `${step.step_config.amount ?? "?"} ${step.step_config.unit ?? ""}`
     case "condition":
