@@ -1,0 +1,8 @@
+{
+  "name": "run-wacrm-driver",
+  "private": true,
+  "description": "Playwright driver for the run-wacrm skill. Not part of the app build.",
+  "dependencies": {
+    "playwright": "^1.61.1"
+  }
+}
