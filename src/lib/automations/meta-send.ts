@@ -1,4 +1,9 @@
-import { sendTextMessage, sendTemplateMessage } from '@/lib/whatsapp/meta-api'
+import {
+  sendTextMessage,
+  sendTemplateMessage,
+  sendMediaMessage,
+  type MediaKind,
+} from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { resolveWhatsappConfigForConversation } from '@/lib/whatsapp/resolve-config'
 import {
@@ -52,6 +57,114 @@ export async function engineSendTemplate(
   args: SendTemplateArgs,
 ): Promise<{ whatsapp_message_id: string }> {
   return sendViaMeta({ ...args, kind: 'template' })
+}
+
+interface SendMediaArgs {
+  accountId: string
+  userId: string
+  conversationId: string
+  contactId: string
+  kind: MediaKind
+  /** Public URL Meta fetches at send time. */
+  link: string
+  caption?: string
+  /** Document-only; ignored by Meta for image/video/audio. */
+  filename?: string
+}
+
+/**
+ * Send an image / video / document / audio from the Automations engine
+ * (the `send_media` step). Mirrors `engineSendMedia` in
+ * src/lib/flows/meta-send.ts — kept as its own function (not folded
+ * into `sendViaMeta`) since media has a distinct shape (kind/link/
+ * caption/filename vs text/template) and no separate DRY base exists
+ * yet between the two engines.
+ */
+export async function engineSendMedia(
+  args: SendMediaArgs,
+): Promise<{ whatsapp_message_id: string }> {
+  const db = supabaseAdmin()
+
+  const { data: contact, error: contactErr } = await db
+    .from('contacts')
+    .select('id, phone')
+    .eq('id', args.contactId)
+    .eq('account_id', args.accountId)
+    .maybeSingle()
+  if (contactErr || !contact?.phone) {
+    throw new Error('contact not found for this account')
+  }
+
+  const sanitized = sanitizePhoneForMeta(contact.phone)
+  if (!isValidE164(sanitized)) {
+    throw new Error(`contact phone invalid: ${contact.phone}`)
+  }
+
+  const config = await resolveWhatsappConfigForConversation(
+    db,
+    args.accountId,
+    args.conversationId,
+  )
+  const accessToken = decrypt(config.access_token)
+
+  const attempt = async (phone: string): Promise<string> => {
+    const r = await sendMediaMessage({
+      phoneNumberId: config.phone_number_id,
+      accessToken,
+      to: phone,
+      kind: args.kind,
+      link: args.link,
+      caption: args.caption,
+      filename: args.filename,
+    })
+    return r.messageId
+  }
+
+  const variants = phoneVariants(sanitized)
+  let workingPhone = sanitized
+  let waMessageId = ''
+  let lastError: unknown = null
+  for (const v of variants) {
+    try {
+      waMessageId = await attempt(v)
+      workingPhone = v
+      lastError = null
+      break
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!isRecipientNotAllowedError(msg)) throw err
+      lastError = err
+    }
+  }
+  if (lastError) throw lastError
+
+  if (workingPhone !== sanitized) {
+    await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
+  }
+
+  const preview = args.caption?.trim() || `[${args.kind}]`
+  const { error: msgErr } = await db.from('messages').insert({
+    conversation_id: args.conversationId,
+    sender_type: 'bot',
+    content_type: args.kind,
+    content_text: args.caption ?? null,
+    message_id: waMessageId,
+    status: 'sent',
+  })
+  if (msgErr) {
+    throw new Error(`sent to Meta but DB insert failed: ${msgErr.message}`)
+  }
+
+  await db
+    .from('conversations')
+    .update({
+      last_message_text: preview,
+      last_message_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', args.conversationId)
+
+  return { whatsapp_message_id: waMessageId }
 }
 
 type SendInput =

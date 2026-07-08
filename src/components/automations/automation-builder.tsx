@@ -2,8 +2,10 @@
 
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react"
@@ -31,6 +33,10 @@ import {
   ArrowDown,
   ArrowUp,
   Sparkles,
+  Paperclip,
+  Bell,
+  Upload,
+  X,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -54,6 +60,7 @@ import type {
 } from "@/types"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
+import { uploadAccountMedia, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media"
 
 // ------------------------------------------------------------
 // Types (builder-local — mirror the flattened rows we POST)
@@ -91,12 +98,14 @@ interface StepMeta {
 const STEP_META: Record<AutomationStepType, StepMeta> = {
   send_message: { label: "Send Message", icon: MessageSquare, border: "border-l-primary" },
   send_template: { label: "Send Template", icon: FileText, border: "border-l-primary" },
+  send_media: { label: "Send Media", icon: Paperclip, border: "border-l-primary" },
   ai_reply: { label: "AI Reply", icon: Sparkles, border: "border-l-primary" },
   add_tag: { label: "Add Tag", icon: Tag, border: "border-l-primary" },
   remove_tag: { label: "Remove Tag", icon: TagIcon, border: "border-l-primary" },
   assign_conversation: { label: "Assign Conversation", icon: UserCheck, border: "border-l-primary" },
   update_contact_field: { label: "Update Contact Field", icon: PencilLine, border: "border-l-primary" },
   create_deal: { label: "Create Deal", icon: Briefcase, border: "border-l-primary" },
+  notify_admin: { label: "Notify Admin", icon: Bell, border: "border-l-primary" },
   wait: { label: "Wait", icon: Hourglass, border: "border-l-border" },
   condition: { label: "Condition (If/Else)", icon: GitBranch, border: "border-l-amber-500" },
   send_webhook: { label: "Send Webhook", icon: Webhook, border: "border-l-primary" },
@@ -106,12 +115,14 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
 const ADDABLE_STEPS: AutomationStepType[] = [
   "send_message",
   "send_template",
+  "send_media",
   "ai_reply",
   "add_tag",
   "remove_tag",
   "assign_conversation",
   "update_contact_field",
   "create_deal",
+  "notify_admin",
   "wait",
   "condition",
   "send_webhook",
@@ -147,6 +158,8 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
       return { text: "" }
     case "send_template":
       return { template_name: "", language: "en_US" }
+    case "send_media":
+      return { media_type: "image", media_url: "", caption: "", filename: "" }
     case "ai_reply":
       return { prompt: "" }
     case "add_tag":
@@ -158,6 +171,8 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
       return { field: "name", value: "" }
     case "create_deal":
       return { pipeline_id: "", stage_id: "", title: "", value: 0 }
+    case "notify_admin":
+      return { user_id: "", title: "", body: "" }
     case "wait":
       return { amount: 1, unit: "hours" }
     case "condition":
@@ -584,6 +599,164 @@ function SendTemplateFields({
         )}
       </select>
     </FieldBlock>
+  )
+}
+
+const MEDIA_ACCEPT: Record<string, string> = {
+  image: "image/png,image/jpeg,image/webp",
+  video: "video/mp4,video/3gpp",
+  document:
+    "application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain",
+  audio: "audio/ogg,audio/mpeg,audio/aac,audio/mp4,audio/amr",
+}
+
+const AUTOMATION_MEDIA_BUCKET = "flow-media"
+
+/** Media-type picker + upload button for the send_media step — mirrors
+ *  the Flows builder's SendMediaForm (src/components/flows/forms/
+ *  node-config-form.tsx), reusing the same flow-media bucket and
+ *  upload helper since this is the same "media wacrm sends over
+ *  WhatsApp" concern, not a Flows-only one. */
+function SendMediaFields({
+  cfg,
+  onChange,
+}: {
+  cfg: Record<string, unknown>
+  onChange: (patch: Record<string, unknown>) => void
+}) {
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+
+  const mediaType = (cfg.media_type as string) || "image"
+  const isAudio = mediaType === "audio"
+  const isDocument = mediaType === "document"
+  const mediaUrl = (cfg.media_url as string) ?? ""
+  const displayName =
+    (cfg.filename as string) || (mediaUrl ? mediaUrl.split("/").pop() ?? "" : "")
+
+  const handleFile = useCallback(
+    async (file: File) => {
+      if (file.size > MEDIA_MAX_BYTES) {
+        toast.error(
+          `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — limit is 16 MB.`,
+        )
+        return
+      }
+      setUploading(true)
+      try {
+        const { publicUrl } = await uploadAccountMedia(AUTOMATION_MEDIA_BUCKET, file)
+        onChange({ media_url: publicUrl, filename: file.name })
+        toast.success("File uploaded.")
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Upload failed.")
+      } finally {
+        setUploading(false)
+      }
+    },
+    [onChange],
+  )
+
+  return (
+    <>
+      <FieldBlock label="Media type">
+        <select
+          value={mediaType}
+          onChange={(e) => {
+            // Changing type clears the file — the bucket accepts a
+            // different MIME set per type (same rule as Flows).
+            onChange({
+              media_type: e.target.value,
+              media_url: "",
+              filename: "",
+              ...(e.target.value === "audio" ? { caption: "" } : {}),
+            })
+          }}
+          className={SELECT_CLASS}
+        >
+          <option value="image">Image (PNG, JPEG, WebP)</option>
+          <option value="video">Video (MP4, 3GP)</option>
+          <option value="document">Document (PDF, Word, Excel, PowerPoint, TXT)</option>
+          <option value="audio">Audio (voice note)</option>
+        </select>
+      </FieldBlock>
+
+      <FieldBlock label="File">
+        {mediaUrl ? (
+          <div className="flex items-center gap-2 rounded-md border border-border bg-muted px-3 py-2 text-xs">
+            <Paperclip className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <a
+              href={mediaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="min-w-0 flex-1 truncate text-foreground hover:text-primary"
+              title={displayName || mediaUrl}
+            >
+              {displayName || mediaUrl}
+            </a>
+            <button
+              type="button"
+              onClick={() => onChange({ media_url: "", filename: "" })}
+              className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="Remove file"
+              disabled={uploading}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-border bg-card px-3 py-4 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {uploading ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Uploading…
+              </>
+            ) : (
+              <>
+                <Upload className="h-3.5 w-3.5" />
+                Click to upload (max 16 MB)
+              </>
+            )}
+          </button>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={MEDIA_ACCEPT[mediaType]}
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0]
+            if (f) void handleFile(f)
+            e.target.value = ""
+          }}
+        />
+      </FieldBlock>
+
+      {!isAudio && (
+        <FieldBlock label="Caption (optional)">
+          <Textarea
+            value={(cfg.caption as string) ?? ""}
+            onChange={(e) => onChange({ caption: e.target.value })}
+            className="min-h-16 bg-muted text-foreground"
+          />
+        </FieldBlock>
+      )}
+
+      {isDocument && (
+        <FieldBlock label="Filename shown to the customer">
+          <Input
+            value={(cfg.filename as string) ?? ""}
+            onChange={(e) => onChange({ filename: e.target.value })}
+            placeholder="invoice.pdf"
+            className="bg-muted text-foreground"
+          />
+        </FieldBlock>
+      )}
+    </>
   )
 }
 
@@ -1199,6 +1372,13 @@ function StepEditor({
           onChange={(patch) => set(patch)}
         />
       )
+    case "send_media":
+      return (
+        <SendMediaFields
+          cfg={cfg}
+          onChange={(patch) => set(patch)}
+        />
+      )
     case "ai_reply":
       return (
         <FieldBlock label="Instructions for the AI">
@@ -1292,6 +1472,36 @@ function StepEditor({
           </FieldBlock>
         </>
       )
+    case "notify_admin":
+      return (
+        <>
+          <FieldBlock label="Notify">
+            <AgentSelect
+              value={(cfg.user_id as string) ?? ""}
+              onChange={(v) => set({ user_id: v })}
+            />
+          </FieldBlock>
+          <FieldBlock label="Title">
+            <Input
+              value={(cfg.title as string) ?? ""}
+              onChange={(e) => set({ title: e.target.value })}
+              placeholder="e.g. New order from {{contact.name}}"
+              className="bg-muted text-foreground"
+            />
+          </FieldBlock>
+          <FieldBlock label="Body (optional)">
+            <Textarea
+              value={(cfg.body as string) ?? ""}
+              onChange={(e) => set({ body: e.target.value })}
+              className="min-h-16 bg-muted text-foreground"
+            />
+          </FieldBlock>
+          <p className="text-xs text-muted-foreground">
+            Shows up as a bell-icon notification for the chosen teammate —
+            not a WhatsApp message to the customer.
+          </p>
+        </>
+      )
     case "wait":
       return (
         <div className="grid grid-cols-2 gap-2">
@@ -1330,24 +1540,34 @@ function StepEditor({
               <option value="contact_field">Contact field</option>
               <option value="message_content">Message content</option>
               <option value="time_of_day">Time of day</option>
+              <option value="no_reply_since_last_message">Customer hasn&apos;t replied</option>
             </select>
           </FieldBlock>
-          <FieldBlock label="Operand">
-            <Input
-              placeholder={
-                cfg.subject === "time_of_day"
-                  ? "HH:mm-HH:mm"
-                  : cfg.subject === "contact_field"
-                  ? "name / email / company"
-                  : cfg.subject === "tag_presence"
-                  ? "tag id"
-                  : ""
-              }
-              value={(cfg.operand as string) ?? ""}
-              onChange={(e) => set({ operand: e.target.value })}
-              className="bg-muted text-foreground"
-            />
-          </FieldBlock>
+          {cfg.subject === "no_reply_since_last_message" ? (
+            <p className="text-xs text-muted-foreground">
+              True when the last message in the conversation was ours, not
+              the customer&apos;s — pair with a Wait step to build &quot;remind
+              them if they went quiet&quot; (Send message → Wait → this
+              condition → Send message again).
+            </p>
+          ) : (
+            <FieldBlock label="Operand">
+              <Input
+                placeholder={
+                  cfg.subject === "time_of_day"
+                    ? "HH:mm-HH:mm"
+                    : cfg.subject === "contact_field"
+                    ? "name / email / company"
+                    : cfg.subject === "tag_presence"
+                    ? "tag id"
+                    : ""
+                }
+                value={(cfg.operand as string) ?? ""}
+                onChange={(e) => set({ operand: e.target.value })}
+                className="bg-muted text-foreground"
+              />
+            </FieldBlock>
+          )}
           {(cfg.subject === "contact_field" || cfg.subject === "message_content") && (
             <FieldBlock label="Value">
               <Input
@@ -1410,8 +1630,15 @@ function previewFor(step: BuilderStep): string {
       return (step.step_config.text as string) || "no text yet"
     case "send_template":
       return (step.step_config.template_name as string) || "pick a template"
+    case "send_media": {
+      const url = step.step_config.media_url as string | undefined
+      const type = (step.step_config.media_type as string) || "file"
+      return url ? `${type}: ${url.split("/").pop()}` : "no file uploaded yet"
+    }
     case "ai_reply":
       return (step.step_config.prompt as string) || "no instructions yet"
+    case "notify_admin":
+      return (step.step_config.title as string) || "no title yet"
     case "wait":
       return `${step.step_config.amount ?? "?"} ${step.step_config.unit ?? ""}`
     case "condition":

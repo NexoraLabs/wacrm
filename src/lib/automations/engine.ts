@@ -6,6 +6,8 @@ import type {
   AutomationTriggerType,
   ConditionStepConfig,
   KeywordMatchTriggerConfig,
+  NotifyAdminStepConfig,
+  SendMediaStepConfig,
   SendMessageStepConfig,
   SendTemplateStepConfig,
   SendWebhookStepConfig,
@@ -16,7 +18,7 @@ import type {
   AssignConversationStepConfig,
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
-import { engineSendText, engineSendTemplate } from './meta-send'
+import { engineSendText, engineSendTemplate, engineSendMedia } from './meta-send'
 import { loadAiConfig } from '@/lib/ai/config'
 import { buildConversationContext } from '@/lib/ai/context'
 import { retrieveKnowledge } from '@/lib/ai/knowledge'
@@ -406,6 +408,24 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       return `template sent via Meta (${whatsapp_message_id})`
     }
 
+    case 'send_media': {
+      const cfg = step.step_config as SendMediaStepConfig
+      if (!args.contactId) throw new Error('send_media needs a contact')
+      if (!cfg.media_url?.trim()) throw new Error('send_media needs a file (upload one)')
+      const conversationId = await resolveConversationId(args)
+      const { whatsapp_message_id } = await engineSendMedia({
+        accountId: args.automation.account_id,
+        userId: args.automation.user_id,
+        conversationId,
+        contactId: args.contactId,
+        kind: cfg.media_type,
+        link: cfg.media_url,
+        caption: cfg.caption ? interpolate(cfg.caption, args) : undefined,
+        filename: cfg.filename,
+      })
+      return `media sent via Meta (${whatsapp_message_id})`
+    }
+
     case 'ai_reply': {
       const cfg = step.step_config as AiReplyStepConfig
       if (!args.contactId) throw new Error('ai_reply needs a contact')
@@ -592,6 +612,31 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       return 'deal created'
     }
 
+    case 'notify_admin': {
+      const cfg = step.step_config as NotifyAdminStepConfig
+      if (!cfg.user_id) throw new Error('notify_admin needs a recipient')
+      if (!cfg.title?.trim()) throw new Error('notify_admin needs a title')
+      // Unlike send_message/send_media, this doesn't require a contact
+      // or conversation — an admin alert can fire from a purely
+      // time-based trigger with nothing to link to. conversation_id
+      // comes straight from context rather than resolveConversationId()
+      // (which throws with no contact) so that case degrades gracefully.
+      const { error } = await db.from('notifications').insert({
+        account_id: args.automation.account_id,
+        user_id: cfg.user_id,
+        type: 'automation_alert',
+        conversation_id: args.context.conversation_id ?? null,
+        contact_id: args.contactId ?? null,
+        // NULL actor_user_id reads as "the system/an automation did
+        // this" per the notifications table's own convention.
+        actor_user_id: null,
+        title: interpolate(cfg.title, args),
+        body: cfg.body ? interpolate(cfg.body, args) : null,
+      })
+      if (error) throw new Error(`notify_admin insert failed: ${error.message}`)
+      return `notification sent to ${cfg.user_id}`
+    }
+
     case 'send_webhook': {
       const cfg = step.step_config as SendWebhookStepConfig
       if (!cfg.url) throw new Error('send_webhook needs url')
@@ -690,6 +735,24 @@ async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): P
     case 'message_content': {
       const text = (args.context.message_text ?? '').toString()
       return text.toLowerCase().includes((cfg.value ?? '').toLowerCase())
+    }
+    case 'no_reply_since_last_message': {
+      // True when the customer hasn't replied since our last outbound
+      // send — the gate a "reminder if they went quiet" automation
+      // needs after a `wait` step (send_message → wait 24h → this
+      // condition → send_message again only if still true). Looks at
+      // just the most recent message rather than a time window: if
+      // the customer sent anything after our last message, they
+      // replied, however long ago that was.
+      const conversationId = await resolveConversationId(args)
+      const { data } = await db
+        .from('messages')
+        .select('sender_type')
+        .eq('conversation_id', conversationId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      return data?.sender_type !== 'customer'
     }
     case 'time_of_day': {
       // operand form "HH:mm-HH:mm" — true if now is within that window

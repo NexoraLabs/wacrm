@@ -189,6 +189,53 @@ describe("validateStepsForActivation", () => {
       "steps[0].subject",
     ]);
   });
+
+  it("does not require an operand for no_reply_since_last_message", () => {
+    expect(
+      validateStepsForActivation([
+        {
+          step_type: "condition",
+          step_config: { subject: "no_reply_since_last_message" },
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("flags send_media when media_type or media_url is missing", () => {
+    const issues = validateStepsForActivation([
+      { step_type: "send_media", step_config: {} },
+    ]);
+    expect(issues.map((i) => i.path).sort()).toEqual([
+      "steps[0].media_type",
+      "steps[0].media_url",
+    ]);
+    expect(
+      validateStepsForActivation([
+        {
+          step_type: "send_media",
+          step_config: { media_type: "image", media_url: "https://x/y.png" },
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("flags notify_admin when recipient or title is missing", () => {
+    const issues = validateStepsForActivation([
+      { step_type: "notify_admin", step_config: {} },
+    ]);
+    expect(issues.map((i) => i.path).sort()).toEqual([
+      "steps[0].title",
+      "steps[0].user_id",
+    ]);
+    expect(
+      validateStepsForActivation([
+        {
+          step_type: "notify_admin",
+          step_config: { user_id: "user-uuid", title: "New order" },
+        },
+      ]),
+    ).toEqual([]);
+  });
 });
 
 describe("validateTriggerForActivation", () => {

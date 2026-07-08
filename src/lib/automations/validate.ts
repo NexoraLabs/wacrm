@@ -63,6 +63,14 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
         issues.push({ path: `${path}.template_name`, message: 'template name is required' })
       }
       break
+    case 'send_media':
+      if (!nonEmpty(c.media_type)) {
+        issues.push({ path: `${path}.media_type`, message: 'media type is required' })
+      }
+      if (!nonEmpty(c.media_url)) {
+        issues.push({ path: `${path}.media_url`, message: 'a file is required (upload one)' })
+      }
+      break
     case 'ai_reply':
       if (!nonEmpty(c.prompt)) {
         issues.push({ path: `${path}.prompt`, message: 'AI reply prompt is required' })
@@ -101,6 +109,14 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
         issues.push({ path: `${path}.title`, message: 'title is required' })
       }
       break
+    case 'notify_admin':
+      if (!nonEmpty(c.user_id)) {
+        issues.push({ path: `${path}.user_id`, message: 'a recipient is required' })
+      }
+      if (!nonEmpty(c.title)) {
+        issues.push({ path: `${path}.title`, message: 'notification title is required' })
+      }
+      break
     case 'wait':
       if (typeof c.amount !== 'number' || !Number.isFinite(c.amount) || c.amount <= 0) {
         issues.push({ path: `${path}.amount`, message: 'wait amount must be greater than 0' })
@@ -116,7 +132,10 @@ function validateOne(step: StepLike, path: string, issues: ValidationIssue[]): v
       if (!nonEmpty(c.subject)) {
         issues.push({ path: `${path}.subject`, message: 'condition subject is required' })
       }
-      if (!nonEmpty(c.operand)) {
+      // no_reply_since_last_message is a pure yes/no check (was the
+      // last message in the conversation from us, not the customer) —
+      // it has nothing to compare against, unlike every other subject.
+      if (c.subject !== 'no_reply_since_last_message' && !nonEmpty(c.operand)) {
         issues.push({ path: `${path}.operand`, message: 'condition operand is required' })
       }
       break

@@ -177,7 +177,7 @@ export interface Conversation {
 // Notifications (migration 027)
 // ============================================================
 
-export type NotificationType = 'conversation_assigned';
+export type NotificationType = 'conversation_assigned' | 'automation_alert';
 
 export interface Notification {
   id: string;
@@ -462,12 +462,14 @@ export type AutomationTriggerType =
 export type AutomationStepType =
   | 'send_message'
   | 'send_template'
+  | 'send_media'
   | 'ai_reply'
   | 'add_tag'
   | 'remove_tag'
   | 'assign_conversation'
   | 'update_contact_field'
   | 'create_deal'
+  | 'notify_admin'
   | 'wait'
   | 'condition'
   | 'send_webhook'
@@ -515,6 +517,16 @@ export interface AiReplyStepConfig {
   prompt: string;
 }
 
+export interface SendMediaStepConfig {
+  media_type: 'image' | 'video' | 'document' | 'audio';
+  /** Public URL Meta will fetch. Uploaded via the builder's file picker. */
+  media_url: string;
+  /** Caption (image/video/document only — Meta rejects it on audio). */
+  caption?: string;
+  /** Document-only; ignored by Meta for image/video/audio. */
+  filename?: string;
+}
+
 export interface TagStepConfig {
   tag_id: string;
 }
@@ -544,6 +556,16 @@ export interface CreateDealStepConfig {
   value?: number;
 }
 
+export interface NotifyAdminStepConfig {
+  /** Recipient — a teammate on this account. Shows as a bell-icon
+   *  notification (Notifications page) rather than a WhatsApp message. */
+  user_id: string;
+  /** Supports {{vars.*}} / {{message.text}} interpolation, same as
+   *  send_message. */
+  title: string;
+  body?: string;
+}
+
 export interface WaitStepConfig {
   amount: number;
   unit: 'minutes' | 'hours' | 'days';
@@ -553,7 +575,8 @@ export type ConditionSubject =
   | 'contact_field'
   | 'tag_presence'
   | 'message_content'
-  | 'time_of_day';
+  | 'time_of_day'
+  | 'no_reply_since_last_message';
 
 export interface ConditionStepConfig {
   subject: ConditionSubject;
@@ -572,11 +595,13 @@ export interface SendWebhookStepConfig {
 export type AutomationStepConfig =
   | SendMessageStepConfig
   | SendTemplateStepConfig
+  | SendMediaStepConfig
   | AiReplyStepConfig
   | TagStepConfig
   | AssignConversationStepConfig
   | UpdateContactFieldStepConfig
   | CreateDealStepConfig
+  | NotifyAdminStepConfig
   | WaitStepConfig
   | ConditionStepConfig
   | SendWebhookStepConfig

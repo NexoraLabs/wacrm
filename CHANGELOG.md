@@ -9,6 +9,29 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.14.0] — 2026-07-08
+
+Fills three gaps in Automations needed to build a full sales flow
+(guided conversation in Flows + side-effects in Automations): sending
+media, alerting a teammate, and reminding a customer who's gone quiet.
+
+### Added
+
+- **`send_media` automation step.** Automations could previously only
+  send text/templates — never an image, video, document, or voice
+  note. New step mirrors the Flows `send_media` node's upload UI and
+  reuses the same `flow-media` bucket.
+- **`notify_admin` automation step.** Alerts a specific teammate via
+  the in-app notification bell (Notifications page) without touching
+  WhatsApp or reassigning the conversation — distinct from
+  `assign_conversation`, which does both. **Migration required:**
+  apply `supabase/migrations/042_automation_gaps.sql` — widens
+  `notifications.type` to allow `'automation_alert'`.
+- **`no_reply_since_last_message` condition subject.** Lets a "remind
+  them if they went quiet" automation (Send message → Wait → this
+  condition → Send message again) check whether the customer actually
+  replied during the wait, instead of blindly re-sending regardless.
+
 ## [0.13.0] — 2026-07-08
 
 Adds a "typing…" bubble on the customer's WhatsApp while an AI reply is
