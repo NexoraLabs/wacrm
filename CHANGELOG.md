@@ -9,6 +9,35 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.11.0] — 2026-07-08
+
+Adds SaaS membership billing — charge every account a flat monthly fee
+to keep using wacrm, collected through **Wompi** (Colombian payment
+gateway).
+
+### Added
+
+- **Wompi subscription billing (Settings → Billing).** New
+  `account_subscriptions` table (one row per account, following the
+  same per-account config-table pattern as `ai_configs`/
+  `whatsapp_config`). Card tokenization happens directly in the
+  browser against Wompi's public API — raw card data never touches
+  our server. `POST /api/billing/subscribe` (admin-only) creates a
+  Wompi payment source and charges the first period;
+  `POST /api/wompi/webhook` verifies Wompi's event checksum and
+  updates status from `transaction.updated` events; `GET
+  /api/billing/cron` (reuses `AUTOMATION_CRON_SECRET`) charges the
+  stored payment source again for each renewal. **Migration required:**
+  apply `supabase/migrations/040_billing.sql` — adds
+  `account_subscriptions` and grandfathers every existing account in
+  as `active` so nobody who already signed up gets locked out.
+- **Access gating ships OFF by default.** Set
+  `BILLING_ENFORCEMENT_ENABLED=true` (see `.env`) once you've verified
+  a real subscription end-to-end in Wompi sandbox — until then, every
+  page and route works exactly as before regardless of subscription
+  status. See `src/lib/billing/gate.ts` and the subscription check in
+  `src/middleware.ts`.
+
 ## [0.10.1] — 2026-07-08
 
 ### Fixed

@@ -85,6 +85,37 @@ export async function middleware(request: NextRequest) {
     )
   }
 
+  // Subscription gate — OFF unless BILLING_ENFORCEMENT_ENABLED=true (see
+  // src/lib/billing/gate.ts). Excludes /settings itself (where the
+  // billing tab lives — a lapsed account must still be able to reach
+  // it to fix payment) and every /api/* route (server routes enforce
+  // their own gate via requireActiveSubscription() when they choose to).
+  if (
+    user &&
+    process.env.BILLING_ENFORCEMENT_ENABLED === 'true' &&
+    protectedPaths.some(path => request.nextUrl.pathname.startsWith(path)) &&
+    !request.nextUrl.pathname.startsWith('/settings') &&
+    !request.nextUrl.pathname.startsWith('/api/')
+  ) {
+    const { data: subscription } = await supabase
+      .from('account_subscriptions')
+      .select('status, current_period_end')
+      .maybeSingle()
+
+    const gracePeriodMs = 3 * 24 * 60 * 60 * 1000
+    const inGrace =
+      subscription?.status === 'past_due' &&
+      subscription.current_period_end &&
+      Date.now() <= new Date(subscription.current_period_end).getTime() + gracePeriodMs
+
+    if (subscription?.status !== 'active' && !inGrace) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/settings'
+      url.search = '?tab=billing'
+      return withRefreshedCookies(NextResponse.redirect(url))
+    }
+  }
+
   return supabaseResponse
 }
 
