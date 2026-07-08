@@ -25,6 +25,7 @@ import {
   MessageCircle,
   Paperclip,
   PlayCircle,
+  Sparkles,
   Tag,
   UserPlus,
   Workflow,
@@ -49,6 +50,7 @@ export type NodeType =
   | 'collect_input'
   | 'condition'
   | 'set_tag'
+  | 'ai_reply'
   | 'handoff'
   | 'end';
 
@@ -152,6 +154,13 @@ export const NODE_META: Record<
     blurb: 'Adds or removes a contact tag',
     category: 'logic',
   },
+  ai_reply: {
+    label: 'AI reply',
+    icon: Sparkles,
+    color: 'text-amber-300',
+    blurb: 'Generates a reply with AI',
+    category: 'messaging',
+  },
   handoff: {
     label: 'Handoff to agent',
     icon: UserPlus,
@@ -205,6 +214,7 @@ const NODE_HUE: Record<NodeType, { l: number; c: number; h: number }> = {
   collect_input: { l: 0.65, c: 0.1, h: 185 }, // teal — capture
   condition: { l: 0.72, c: 0.15, h: 65 }, // amber — a fork in the road
   set_tag: { l: 0.65, c: 0.15, h: 350 }, // pink
+  ai_reply: { l: 0.68, c: 0.15, h: 85 }, // warm gold — AI/spark
   handoff: { l: 0.65, c: 0.17, h: 16 }, // rose — hands off
   end: { l: 0.55, c: 0.01, h: 260 }, // neutral grey — terminal
 };
@@ -414,6 +424,10 @@ export function summarizeNode(node: BuilderNode): string | null {
       return tagId
         ? `${mode} tag ${tagId.slice(0, 8)}…`
         : `${mode} tag (none picked)`;
+    }
+    case 'ai_reply': {
+      const prompt = typeof cfg.prompt === 'string' ? cfg.prompt : '';
+      return prompt.length > 0 ? truncate(prompt) : null;
     }
     case 'handoff': {
       const note = typeof cfg.note === 'string' ? cfg.note : '';

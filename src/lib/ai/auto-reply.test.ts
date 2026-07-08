@@ -64,6 +64,7 @@ const ARGS = {
   conversationId: 'conv-1',
   contactId: 'contact-1',
   configOwnerUserId: 'user-1',
+  metaMessageId: 'wamid-1',
 }
 
 function aiConfig(overrides: Partial<AiConfig> = {}): AiConfig {

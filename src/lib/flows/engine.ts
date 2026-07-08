@@ -40,7 +40,16 @@ import {
   engineSendText,
 } from "./meta-send";
 import { decideFallback, resolveFallbackPolicy } from "./fallback";
+import { loadAiConfig } from "@/lib/ai/config";
+import { buildConversationContext } from "@/lib/ai/context";
+import { buildSystemPrompt } from "@/lib/ai/defaults";
+import { generateReply } from "@/lib/ai/generate";
+import { retrieveKnowledge } from "@/lib/ai/knowledge";
+import { resolveProductPromptContext } from "@/lib/ai/product-context";
+import { latestUserMessage } from "@/lib/ai/query";
+import { showTypingIndicator } from "@/lib/whatsapp/typing-indicator";
 import {
+  type AiReplyNodeConfig,
   type CollectInputNodeConfig,
   type ConditionNodeConfig,
   type DispatchInboundInput,
@@ -549,6 +558,10 @@ async function advanceFromNodeKey(
   run: FlowRunRow,
   startNodeKey: string,
   nodes: Map<string, FlowNodeRow>,
+  /** The inbound message that triggered this advance — used to show a
+   *  "typing…" bubble on the customer's WhatsApp before an ai_reply
+   *  node's (slower) generation call. */
+  metaMessageId: string,
 ): Promise<{ outcome: "advanced" | "completed" | "handed_off" }> {
   let currentKey: string | null = startNodeKey;
   // Defensive cap — if a flow has a cycle (which the validator
@@ -728,6 +741,82 @@ async function advanceFromNodeKey(
           reason: "set_tag_failed",
           detail: err instanceof Error ? err.message : String(err),
         });
+      }
+      currentKey = cfg.next_node_key;
+      continue;
+    }
+    if (node.node_type === "ai_reply") {
+      const cfg = node.config as unknown as AiReplyNodeConfig;
+      try {
+        await showTypingIndicator(db, {
+          accountId: run.account_id,
+          conversationId: run.conversation_id!,
+          metaMessageId,
+        });
+
+        const aiConfig = await loadAiConfig(db, run.account_id);
+        if (!aiConfig) {
+          throw new Error("AI assistant is not set up for this account");
+        }
+
+        const messages = await buildConversationContext(
+          db,
+          run.conversation_id!,
+        );
+        const knowledge = await retrieveKnowledge(
+          db,
+          run.account_id,
+          aiConfig,
+          latestUserMessage(messages),
+        );
+        const productContext = await resolveProductPromptContext(
+          db,
+          run.account_id,
+          run.conversation_id!,
+        );
+        const extraInstruction = [
+          productContext,
+          interpolateVars(cfg.prompt, run.vars),
+        ]
+          .filter((s): s is string => Boolean(s && s.trim()))
+          .join("\n\n");
+
+        const systemPrompt = buildSystemPrompt({
+          userPrompt: aiConfig.systemPrompt,
+          // Not "auto_reply" — that mode teaches the model the
+          // HANDOFF_SENTINEL protocol, which has no listener here; a
+          // flow already has its own explicit `handoff` node type for
+          // that job. Mirrors Automations' own ai_reply step, which
+          // uses "draft" for the same reason.
+          mode: "draft",
+          knowledge,
+          extraInstruction,
+        });
+        const { text } = await generateReply({
+          config: aiConfig,
+          systemPrompt,
+          messages,
+        });
+        if (!text.trim()) throw new Error("AI generated an empty reply");
+
+        const { whatsapp_message_id } = await engineSendText({
+          accountId: run.account_id,
+    userId: run.user_id,
+          conversationId: run.conversation_id!,
+          contactId: run.contact_id!,
+          text,
+        });
+        await logEvent(db, run.id, "message_sent", node.node_key, {
+          node_type: "ai_reply",
+          whatsapp_message_id,
+        });
+      } catch (err) {
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "ai_reply_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        await endRun(db, run.id, "failed", "ai_reply_failed");
+        return { outcome: "completed" };
       }
       currentKey = cfg.next_node_key;
       continue;
@@ -976,7 +1065,13 @@ async function handleReplyForActiveRun(
         .eq("id", run.id);
       if (!error) run.reprompt_count = 0;
     }
-    const outcome = await advanceFromNodeKey(db, run, matched, nodes);
+    const outcome = await advanceFromNodeKey(
+      db,
+      run,
+      matched,
+      nodes,
+      message.meta_message_id,
+    );
     return {
       consumed: true,
       flow_run_id: run.id,
@@ -1108,7 +1203,13 @@ async function startNewRun(
   }
 
   // Run the advance loop starting from the entry node.
-  const outcome = await advanceFromNodeKey(db, run, flow.entry_node_id!, nodes);
+  const outcome = await advanceFromNodeKey(
+    db,
+    run,
+    flow.entry_node_id!,
+    nodes,
+    input.message.meta_message_id,
+  );
   return {
     consumed: true,
     flow_run_id: run.id,

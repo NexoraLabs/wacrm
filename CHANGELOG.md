@@ -9,6 +9,50 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.13.0] — 2026-07-08
+
+Adds a "typing…" bubble on the customer's WhatsApp while an AI reply is
+being generated, so they see something is coming instead of silence for
+the few seconds the LLM call takes.
+
+### Added
+
+- **WhatsApp typing indicator during AI generation.** New
+  `sendTypingIndicator` (`src/lib/whatsapp/meta-api.ts`) calls Meta's
+  read-receipt-plus-typing-indicator endpoint; a shared
+  `showTypingIndicator` helper (`src/lib/whatsapp/typing-indicator.ts`,
+  best-effort — never throws) is now called right before generation
+  starts in all three AI-reply call sites: the Flows `ai_reply` node,
+  the Automations `ai_reply` step, and standalone auto-reply. Meta
+  auto-dismisses the bubble once the reply lands or after 25s.
+
+## [0.12.0] — 2026-07-08
+
+Adds an **AI reply** node type to Flows — a guided flow can now
+generate a WhatsApp message on the fly with the account's AI assistant
+instead of only sending fixed text, at any point in the conversation.
+
+### Added
+
+- **AI reply flow node.** New `ai_reply` node type
+  (`src/lib/flows/types.ts`, `engine.ts`) reuses the exact same working
+  pattern as Automations' existing `ai_reply` step: loads the account's
+  AI config (Settings → AI Assistant), builds conversation history +
+  knowledge-base + product-catalog context, generates a reply, and
+  sends it via WhatsApp, then auto-advances to the next node. Verified
+  end-to-end against a real WhatsApp send. **Migration required:**
+  apply `supabase/migrations/041_flows_ai_reply_node.sql` — widens the
+  `flow_nodes.node_type` CHECK constraint to allow `'ai_reply'`.
+
+### Fixed
+
+- **Flows builder: "Add node" menu crashed on open.** Both the list
+  view and canvas view's add-node dropdown rendered a category label
+  outside a `<Menu.Group>`, which the underlying menu primitive
+  requires — clicking "Add node" threw a runtime error instead of
+  showing the menu, for every node type, not just the new one. Fixed
+  in `flow-builder.tsx` and `flow-canvas.tsx`.
+
 ## [0.11.0] — 2026-07-08
 
 Adds SaaS membership billing — charge every account a flat monthly fee

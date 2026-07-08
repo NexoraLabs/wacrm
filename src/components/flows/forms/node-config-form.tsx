@@ -93,6 +93,29 @@ export function NodeConfigForm({
         </>
       );
 
+    case "ai_reply":
+      return (
+        <>
+          <TextRow
+            label="Instructions for the AI"
+            value={(cfg as { prompt?: string }).prompt ?? ""}
+            onChange={(v) => onUpdateConfig({ prompt: v })}
+          />
+          <p className="text-muted-foreground text-xs">
+            The AI writes and sends the reply using the conversation
+            history plus your Business context from Settings → AI
+            Assistant. Requires the AI assistant to be configured.
+          </p>
+          <NextNodeRow
+            value={(cfg as { next_node_key?: string }).next_node_key ?? ""}
+            allNodes={allNodes}
+            currentKey={node.node_key}
+            onChange={(v) => onUpdateConfig({ next_node_key: v })}
+            label="Advances to"
+          />
+        </>
+      );
+
     case "send_buttons":
       return (
         <SendButtonsForm

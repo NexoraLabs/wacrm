@@ -7,6 +7,7 @@ import { generateReply } from './generate'
 import { buildSystemPrompt } from './defaults'
 import { latestUserMessage } from './query'
 import { engineSendText } from '@/lib/flows/meta-send'
+import { showTypingIndicator } from '@/lib/whatsapp/typing-indicator'
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -16,6 +17,9 @@ interface DispatchArgs {
   /** The account's WhatsApp config owner, used for the outbound send's
    *  audit columns (mirrors how the flow runner passes it through). */
   configOwnerUserId: string
+  /** The inbound message id being replied to — shows a "typing…"
+   *  bubble on the customer's WhatsApp while the LLM call is in flight. */
+  metaMessageId: string
 }
 
 /**
@@ -40,7 +44,7 @@ interface DispatchArgs {
 export async function dispatchInboundToAiReply(
   args: DispatchArgs,
 ): Promise<void> {
-  const { accountId, conversationId, contactId, configOwnerUserId } = args
+  const { accountId, conversationId, contactId, configOwnerUserId, metaMessageId } = args
 
   try {
     const db = supabaseAdmin()
@@ -100,6 +104,8 @@ export async function dispatchInboundToAiReply(
       knowledge,
       extraInstruction: productContext ?? undefined,
     })
+
+    await showTypingIndicator(db, { accountId, conversationId, metaMessageId })
 
     const { text, handoff } = await generateReply({
       config,

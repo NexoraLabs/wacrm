@@ -101,6 +101,25 @@ export interface SendMediaNodeConfig {
   next_node_key: string;
 }
 
+/**
+ * Generates a reply with the account's AI assistant (same engine as
+ * the Inbox's "Draft with AI" and Automations' `ai_reply` step —
+ * `src/lib/ai/`) instead of sending fixed text, then auto-advances.
+ * Requires an active `ai_configs` row for the account; the run fails
+ * if the assistant isn't configured.
+ */
+export interface AiReplyNodeConfig {
+  /**
+   * Task-specific instruction layered on top of the account's AI
+   * business context (Settings → AI Assistant), e.g. "Ask if they
+   * still want the appointment." Supports {{vars.X}} interpolation
+   * like SendMessageNodeConfig.text.
+   */
+  prompt: string;
+  /** Auto-advance target after the generated reply is sent. */
+  next_node_key: string;
+}
+
 export interface HandoffNodeConfig {
   /** Optional internal note written to flow_run_events.payload.note. */
   note?: string;
@@ -197,6 +216,7 @@ export type FlowNodeConfig =
   | { node_type: "collect_input"; config: CollectInputNodeConfig }
   | { node_type: "condition"; config: ConditionNodeConfig }
   | { node_type: "set_tag"; config: SetTagNodeConfig }
+  | { node_type: "ai_reply"; config: AiReplyNodeConfig }
   | { node_type: "handoff"; config: HandoffNodeConfig }
   | { node_type: "end"; config: EndNodeConfig };
 

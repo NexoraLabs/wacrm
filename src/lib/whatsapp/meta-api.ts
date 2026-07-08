@@ -259,6 +259,46 @@ export async function sendTextMessage(
   return { messageId: data.messages[0].id }
 }
 
+export interface SendTypingIndicatorArgs {
+  phoneNumberId: string
+  accessToken: string
+  /** The customer's inbound message we're responding to — Meta ties
+   *  the read receipt + typing bubble to this specific message. */
+  metaMessageId: string
+}
+
+/**
+ * Mark an inbound message read and show the customer a "typing…"
+ * bubble on their WhatsApp app while we generate a reply (AI reply
+ * flow node / automation step / auto-reply). Meta auto-dismisses it
+ * after the reply lands or 25s, whichever is first — no explicit
+ * "stop typing" call exists or is needed.
+ *
+ * Reference: https://developers.facebook.com/documentation/business-messaging/whatsapp/typing-indicators
+ */
+export async function sendTypingIndicator(
+  args: SendTypingIndicatorArgs
+): Promise<void> {
+  const { phoneNumberId, accessToken, metaMessageId } = args
+  const url = `${META_API_BASE}/${phoneNumberId}/messages`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      status: 'read',
+      message_id: metaMessageId,
+      typing_indicator: { type: 'text' },
+    }),
+  })
+  if (!response.ok) {
+    await throwMetaError(response, `Meta API error: ${response.status}`)
+  }
+}
+
 export type MediaKind = 'image' | 'video' | 'document' | 'audio'
 
 export interface SendMediaMessageArgs {

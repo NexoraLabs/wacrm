@@ -24,6 +24,7 @@ import { resolveProductPromptContext } from '@/lib/ai/product-context'
 import { generateReply } from '@/lib/ai/generate'
 import { buildSystemPrompt } from '@/lib/ai/defaults'
 import { latestUserMessage } from '@/lib/ai/query'
+import { showTypingIndicator } from '@/lib/whatsapp/typing-indicator'
 
 // ------------------------------------------------------------
 // Public API
@@ -40,6 +41,11 @@ export interface AutomationContext {
   tag_id?: string
   /** Agent the conversation was assigned to, for conversation_assigned. */
   agent_id?: string
+  /** The inbound WhatsApp message id that triggered this dispatch, if
+   *  any — used by the `ai_reply` step to show a "typing…" bubble on
+   *  the customer's WhatsApp before generating (which can take a few
+   *  seconds). Absent for time-based triggers (e.g. `wait` resumes). */
+  meta_message_id?: string
 }
 
 export interface DispatchInput {
@@ -405,6 +411,14 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       if (!args.contactId) throw new Error('ai_reply needs a contact')
       if (!cfg.prompt || !cfg.prompt.trim()) throw new Error('ai_reply needs a prompt')
       const conversationId = await resolveConversationId(args)
+
+      if (args.context.meta_message_id) {
+        await showTypingIndicator(db, {
+          accountId: args.automation.account_id,
+          conversationId,
+          metaMessageId: args.context.meta_message_id,
+        })
+      }
 
       const aiConfig = await loadAiConfig(db, args.automation.account_id)
       if (!aiConfig) {
