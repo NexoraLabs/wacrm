@@ -1,3 +1,4 @@
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabaseAdmin } from './admin-client'
 import { loadAiConfig } from './config'
 import { buildConversationContext } from './context'
@@ -8,6 +9,46 @@ import { buildSystemPrompt } from './defaults'
 import { latestUserMessage } from './query'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { showTypingIndicator } from '@/lib/whatsapp/typing-indicator'
+
+/**
+ * A conversation just went dark on auto-reply (handoff, empty model
+ * output, or the reply cap was hit) — the customer may be mid-purchase
+ * with nobody now watching the thread. Alert the account owner via the
+ * in-app notification bell rather than leaving it to be discovered by
+ * chance. Best-effort: a failed notification must not surface as a
+ * dispatch failure.
+ */
+async function notifyOwnerAutoReplyStopped(
+  db: SupabaseClient,
+  args: {
+    accountId: string
+    userId: string
+    conversationId: string
+    contactId: string
+    reason: 'handoff' | 'reply_cap_reached'
+  },
+): Promise<void> {
+  try {
+    await db.from('notifications').insert({
+      account_id: args.accountId,
+      user_id: args.userId,
+      type: 'automation_alert',
+      conversation_id: args.conversationId,
+      contact_id: args.contactId,
+      actor_user_id: null,
+      title:
+        args.reason === 'handoff'
+          ? '🤝 La IA necesita que tomes esta conversación'
+          : '⏸️ La IA llegó al límite de respuestas en esta conversación',
+      body:
+        args.reason === 'handoff'
+          ? 'El asistente no pudo resolver la conversación con confianza y se detuvo. Revísala en el Inbox.'
+          : 'Se alcanzó el máximo de respuestas automáticas configurado para esta cuenta. El cliente puede seguir esperando — revisa el Inbox.',
+    })
+  } catch (err) {
+    console.error('[ai auto-reply] failed to notify owner:', err)
+  }
+}
 
 interface DispatchArgs {
   /** Tenancy key — drives config, contact, and whatsapp_config lookups. */
@@ -36,6 +77,13 @@ interface DispatchArgs {
  *   - auto-reply was disabled for this conversation (prior handoff)
  *   - the per-conversation reply cap is reached
  *   - there's nothing to reply to
+ *
+ * The last two of those are NOT fully silent: the first time either
+ * fires for a conversation, it flips `ai_autoreply_disabled` (sticky —
+ * stays off until an admin re-enables it) and notifies the account
+ * owner via the in-app bell, so a customer mid-purchase who outpaces
+ * the reply cap or stumps the model doesn't just sit unanswered with
+ * no one aware. See `notifyOwnerAutoReplyStopped` above.
  *
  * The 24h WhatsApp session window is inherently open here — we're
  * reacting to a customer message that just landed — so no separate
@@ -121,6 +169,13 @@ export async function dispatchInboundToAiReply(
         .from('conversations')
         .update({ ai_autoreply_disabled: true })
         .eq('id', conversationId)
+      await notifyOwnerAutoReplyStopped(db, {
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        reason: 'handoff',
+      })
       return
     }
 
@@ -136,7 +191,25 @@ export async function dispatchInboundToAiReply(
         max_replies: config.autoReplyMaxPerConversation,
       },
     )
-    if (claimErr || claimed !== true) return
+    if (claimErr) return
+    if (claimed !== true) {
+      // The cap is genuinely reached (not a transient DB error) — make
+      // it sticky like the handoff path above, and tell the owner,
+      // since a customer mid-purchase could otherwise sit unanswered
+      // with no signal anyone should look.
+      await db
+        .from('conversations')
+        .update({ ai_autoreply_disabled: true })
+        .eq('id', conversationId)
+      await notifyOwnerAutoReplyStopped(db, {
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        reason: 'reply_cap_reached',
+      })
+      return
+    }
 
     await engineSendText({
       accountId,

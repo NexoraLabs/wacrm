@@ -9,6 +9,18 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.14.1] — 2026-07-08
+
+### Fixed
+
+- **AI auto-reply could go silently dark mid-sale.** When the model
+  handed off (couldn't answer confidently) or the per-conversation
+  reply cap was reached, the conversation flipped to
+  `ai_autoreply_disabled` with no signal to anyone — a customer
+  actively trying to buy could sit unanswered indefinitely. Both paths
+  now also notify the account owner via the in-app bell
+  (`src/lib/ai/auto-reply.ts`) so a human knows to step in.
+
 ## [0.14.0] — 2026-07-08
 
 Fills three gaps in Automations needed to build a full sales flow
