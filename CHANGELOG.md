@@ -9,6 +9,20 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.10.1] — 2026-07-08
+
+### Fixed
+
+- **Automations list: activation toggle showed a generic error instead
+  of the real reason.** Flipping the quick-toggle on an automation with
+  an incomplete step (e.g. an "Add tag" step with no tag selected) got
+  rejected by the server-side activation validator and rolled back, but
+  the toast just said "Cannot keep automation active with invalid
+  configuration" — indistinguishable from a real bug. Now surfaces the
+  first concrete validation issue (e.g. `tag is required at
+  steps[1].tag_id`), matching the error handling already used by the
+  automation builder's own save button.
+
 ## [0.10.0] — 2026-07-07
 
 Adds in-app support for building **AUTHENTICATION-category** message

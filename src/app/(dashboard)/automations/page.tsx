@@ -99,7 +99,19 @@ export default function AutomationsPage() {
         prev?.map((x) => (x.id === a.id ? { ...x, is_active: !next } : x)) ?? prev,
       )
       const body = await res.json().catch(() => ({}))
-      toast.error(body?.error ?? "Failed to update")
+      // If the server blocked activation with validation issues, surface
+      // the first concrete problem (e.g. "needs at least one step")
+      // instead of the generic message — matches automation-builder.tsx's
+      // save() error handling so the two surfaces stay consistent.
+      const firstIssue: { path?: string; message?: string } | undefined =
+        body?.issues?.[0]
+      if (firstIssue?.message) {
+        toast.error(firstIssue.message, {
+          description: firstIssue.path ? `at ${firstIssue.path}` : undefined,
+        })
+      } else {
+        toast.error(body?.error ?? "Failed to update")
+      }
       return
     }
     toast.success(next ? "Automation activated" : "Automation paused")
