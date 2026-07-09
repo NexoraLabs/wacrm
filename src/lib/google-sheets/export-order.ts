@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireActiveSubscription } from '@/lib/billing/gate';
 import type { ExportOrderNodeConfig, FlowRunRow } from '@/lib/flows/types';
 import { appendSheetValues, getSheetValues, updateSheetValues } from './client';
+import { getAccessTokenForAccount } from './oauth';
 
 /**
  * Field keys we know how to fill, and the header names (English +
@@ -124,14 +125,15 @@ export async function exportOrderRow(
   };
 
   const { spreadsheet_id: spreadsheetId, sheet_name: sheetName } = sheetConfig;
+  const accessToken = await getAccessTokenForAccount(db, run.account_id);
 
-  const headerRowRaw = await getSheetValues(spreadsheetId, `${sheetName}!1:1`);
+  const headerRowRaw = await getSheetValues(accessToken, spreadsheetId, `${sheetName}!1:1`);
   let headers = (headerRowRaw[0] ?? []).map((h) => normalizeHeader(String(h ?? '')));
 
   if (headers.length === 0) {
     // Empty tab — write a default header the first time a row lands,
     // in the same field order as ORDER_FIELD_ALIASES/DEFAULT_HEADER_ROW.
-    await updateSheetValues(spreadsheetId, `${sheetName}!A1`, [DEFAULT_HEADER_ROW]);
+    await updateSheetValues(accessToken, spreadsheetId, `${sheetName}!A1`, [DEFAULT_HEADER_ROW]);
     headers = DEFAULT_HEADER_ROW.map(normalizeHeader);
   }
 
@@ -145,7 +147,7 @@ export async function exportOrderRow(
     if (row[i] === undefined) row[i] = '';
   }
 
-  await appendSheetValues(spreadsheetId, `${sheetName}!A:Z`, [row]);
+  await appendSheetValues(accessToken, spreadsheetId, `${sheetName}!A:Z`, [row]);
 
   await db
     .from('product_sheet_configs')

@@ -2,13 +2,14 @@
 // /api/products/[id]/google-sheet
 //
 //   GET    — this product's connected sheet (if any), plus whether
-//            the server has a Google service account configured and
+//            the ACCOUNT has connected Google (Settings → Google) and
 //            whether the account's membership is currently active
 //            (the feature gate — see `requireActiveSubscription`).
 //   POST   — connect/update the spreadsheet id + tab name. Admin+,
-//            AND an active membership once billing enforcement is
-//            turned on (`BILLING_ENFORCEMENT_ENABLED=true`) — until
-//            then this is a no-op check, per `src/lib/billing/gate.ts`.
+//            requires the account to have connected Google first, AND
+//            an active membership once billing enforcement is turned
+//            on (`BILLING_ENFORCEMENT_ENABLED=true`) — until then this
+//            is a no-op check, per `src/lib/billing/gate.ts`.
 //   DELETE — disconnect.
 // ============================================================
 
@@ -16,7 +17,6 @@ import { NextResponse } from 'next/server';
 
 import { requireActiveSubscription } from '@/lib/billing/gate';
 import { getCurrentAccount, requireRole, toErrorResponse, ForbiddenError } from '@/lib/auth/account';
-import { getServiceAccountEmail, isGoogleSheetsConfigured } from '@/lib/google-sheets/auth';
 import { extractSpreadsheetId } from '@/lib/google-sheets/spreadsheet-id';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
@@ -32,6 +32,18 @@ async function membershipIsActive(accountId: string): Promise<boolean> {
     if (err instanceof ForbiddenError) return false;
     throw err;
   }
+}
+
+async function accountHasGoogleConnection(
+  supabase: Awaited<ReturnType<typeof getCurrentAccount>>['supabase'],
+  accountId: string
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('account_google_connections')
+    .select('id')
+    .eq('account_id', accountId)
+    .maybeSingle();
+  return !!data;
 }
 
 async function verifyProductOwnership(
@@ -70,8 +82,7 @@ export async function GET(_request: Request, { params }: Params) {
 
     return NextResponse.json({
       config: data ?? null,
-      serverConfigured: isGoogleSheetsConfigured(),
-      serviceAccountEmail: getServiceAccountEmail(),
+      googleConnected: await accountHasGoogleConnection(ctx.supabase, ctx.accountId),
       membershipActive: await membershipIsActive(ctx.accountId),
     });
   } catch (err) {
@@ -92,13 +103,10 @@ export async function POST(request: Request, { params }: Params) {
     // turned on, a lapsed account gets a 403 here.
     await requireActiveSubscription(ctx.accountId);
 
-    if (!isGoogleSheetsConfigured()) {
+    if (!(await accountHasGoogleConnection(ctx.supabase, ctx.accountId))) {
       return NextResponse.json(
-        {
-          error:
-            'Google Sheets sync is not configured on this server. Set GOOGLE_SERVICE_ACCOUNT_EMAIL and GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.',
-        },
-        { status: 503 }
+        { error: 'Connect your Google account first (Settings → Google).' },
+        { status: 409 }
       );
     }
 

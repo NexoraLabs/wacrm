@@ -9,6 +9,29 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.18.0] — 2026-07-09
+
+**Migration required:** `supabase/migrations/046_google_oauth_connections.sql`
+
+### Changed
+
+- **Google Sheets order export now connects via a real "Connect with
+  Google" OAuth button instead of a shared service account.** Each
+  account connects its own Google account once (Settings → Google),
+  then picks a destination sheet per product with Google's file
+  picker (Settings → Products → edit → "Google Sheet export") — no
+  Google Cloud service account, no sharing a spreadsheet with a fixed
+  email, no code, aimed at end customers who aren't technical.
+  Replaces migration 045's `google_sheets_configs`-adjacent
+  service-account design entirely; nothing in production had been
+  configured to use it yet. New env vars: `GOOGLE_OAUTH_CLIENT_ID`,
+  `GOOGLE_OAUTH_CLIENT_SECRET`, `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID`,
+  `NEXT_PUBLIC_GOOGLE_PICKER_API_KEY` (see `.env.local.example` for
+  the one-time Google Cloud setup steps) —
+  `src/lib/google-sheets/oauth.ts`,
+  `src/app/api/integrations/google/**`,
+  `src/components/settings/google-connection-settings.tsx`.
+
 ## [0.17.0] — 2026-07-09
 
 **Migration required:** `supabase/migrations/045_google_sheets_sync.sql`
