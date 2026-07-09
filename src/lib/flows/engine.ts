@@ -1160,18 +1160,22 @@ async function handleReplyForActiveRun(
     };
   }
 
-  // A customer typing a free-form question while parked at a button/list
-  // menu (instead of tapping an option) shouldn't just get the same menu
-  // resent — try answering it with AI first, same generation path as the
-  // ai_reply node. Doesn't touch current_node_key or reprompt_count, so
-  // the menu's buttons are still tappable right after. Falls through to
-  // the ordinary reprompt/handoff policy below only when there's no AI
-  // configured or it produced nothing usable.
-  if (
-    message.kind === "text" &&
-    (currentNode.node_type === "send_buttons" ||
-      currentNode.node_type === "send_list")
-  ) {
+  // A customer typing a free-form question that doesn't match whatever
+  // the run is currently waiting for shouldn't just get a menu resent
+  // (or, worse, nothing at all) — try answering it with AI first, same
+  // generation path as the ai_reply node. Doesn't touch current_node_key
+  // or reprompt_count, so whatever the flow expects next is unaffected.
+  //
+  // Covers every node type except collect_input: that one already
+  // captures ANY non-empty text as the answer in the "matched" branch
+  // above, so it only reaches here on an empty-string edge case that
+  // isn't a real question. Also covers node types that should never be
+  // "current" for a suspended run (e.g. `start`) — a fast second inbound
+  // sent while the first webhook call is still mid-advance can read a
+  // not-yet-updated current_node_key, and previously landed here with
+  // silence: none of the reprompt branches below know how to handle an
+  // unexpected node type, so nothing got sent at all.
+  if (message.kind === "text" && currentNode.node_type !== "collect_input") {
     let aiResult: { whatsapp_message_id: string } | null = null;
     try {
       aiResult = await generateAiAnswer(

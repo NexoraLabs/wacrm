@@ -9,6 +9,27 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.14.4] — 2026-07-09
+
+### Fixed
+
+- **A fast follow-up message sent during a flow's welcome sequence
+  could vanish with zero reply.** A customer who typed a second
+  message (e.g. a pricing question) while the first webhook call was
+  still mid-advance (welcome → tag → video → menu, all sent in one
+  synchronous pass) could have that second inbound read a
+  not-yet-persisted `current_node_key` — landing on a node type (e.g.
+  `start`) that none of the reprompt branches know how to handle, so
+  nothing was sent back at all. The AI-answer intercept added in
+  0.14.3 was scoped to only `send_buttons`/`send_list`; widened it to
+  every node type except `collect_input` (which already captures any
+  text as an answer on its own), so this and any other
+  unexpected-current-node case now gets an AI-generated reply instead
+  of silence (`src/lib/flows/engine.ts`). The underlying race itself
+  (overlapping webhook deliveries for the same contact aren't
+  serialized) is still open — this closes the customer-visible
+  symptom, not the root cause.
+
 ## [0.14.3] — 2026-07-09
 
 ### Fixed
