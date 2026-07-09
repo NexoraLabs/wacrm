@@ -9,7 +9,23 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
-## [0.15.0] — 2026-07-09
+## [0.15.1] — 2026-07-09
+
+### Fixed
+
+- **The AI invented a price when answering before any deal existed.**
+  `resolveProductPromptContext` only loaded a product's pricing/`ai_prompt`
+  through the conversation's deal (`deals.product_id`) — but a deal is
+  normally only created once the customer commits to buying (e.g. a
+  keyword automation on "quiero pedirlo"). Every earlier message,
+  including the very first pricing question, got no product context
+  at all, so the model guessed — confirmed in production, where a
+  customer asked "Precio por favor" and got a fabricated "$29.99"
+  instead of the real price. Now falls back to the account's sole
+  product when there's no deal-linked one yet (the common
+  single-product setup); stays `null` — same as before — when there
+  are 0 or 2+ products with no deal, since it's genuinely ambiguous
+  which applies (`src/lib/ai/product-context.ts`).
 
 ### Added
 
