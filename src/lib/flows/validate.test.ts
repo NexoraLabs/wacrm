@@ -420,6 +420,42 @@ describe("validateFlowForActivation — nodes", () => {
   });
 });
 
+describe("validateFlowForActivation — export_order", () => {
+  const baseFlow = { ...validFlow, entry_node_id: "s" };
+  const nodesWith = (config: Record<string, unknown>) => [
+    { node_key: "s", node_type: "start", config: { next_node_key: "eo" } },
+    { node_key: "eo", node_type: "export_order", config },
+    { node_key: "h", node_type: "handoff", config: {} },
+  ];
+
+  it("flags missing product_id and address_var_key", () => {
+    const issues = validateFlowForActivation(
+      baseFlow,
+      nodesWith({ next_node_key: "h" }),
+    );
+    expect(
+      issues.some((i) => i.node_key === "eo" && i.field === "product_id"),
+    ).toBe(true);
+    expect(
+      issues.some(
+        (i) => i.node_key === "eo" && i.field === "address_var_key",
+      ),
+    ).toBe(true);
+  });
+
+  it("passes with product_id, address_var_key, and a valid next_node_key", () => {
+    const issues = validateFlowForActivation(
+      baseFlow,
+      nodesWith({
+        product_id: "p1",
+        address_var_key: "address",
+        next_node_key: "h",
+      }),
+    );
+    expect(issues.filter((i) => i.node_key === "eo")).toEqual([]);
+  });
+});
+
 describe("validateFlowForActivation — send_media", () => {
   const baseFlow = { ...validFlow, entry_node_id: "s" };
   const nodesWith = (mediaConfig: Record<string, unknown>) => [

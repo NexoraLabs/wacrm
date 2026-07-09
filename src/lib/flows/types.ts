@@ -196,6 +196,33 @@ export interface SetTagNodeConfig {
   next_node_key: string;
 }
 
+/**
+ * Appends one row to the product's connected Google Sheet (Settings →
+ * Products → "Connect Google Sheet") — an append-only order log, not
+ * a contacts mirror. Reads shipping fields out of `flow_runs.vars`
+ * using the configured var keys, which the flow author fills via
+ * preceding `collect_input` nodes (same manual-wiring convention
+ * `condition`'s `var` subject already uses).
+ *
+ * No-op (logged, non-fatal) when the product has no connected sheet
+ * yet, or when the account's membership has lapsed and billing
+ * enforcement is on — see `exportOrderRow` in
+ * `src/lib/google-sheets/export-order.ts`.
+ */
+export interface ExportOrderNodeConfig {
+  /** Which product's connected sheet to append to. */
+  product_id: string;
+  /** flow_runs.vars key holding the delivery address. */
+  address_var_key: string;
+  /** Optional — flow_runs.vars keys for the remaining shipping fields. */
+  city_var_key?: string;
+  department_var_key?: string;
+  neighborhood_var_key?: string;
+  /** Optional — flow_runs.vars key for quantity ordered. Blank if unset. */
+  quantity_var_key?: string;
+  next_node_key: string;
+}
+
 // Terminal nodes carry no config — they just stop the run.
 export type EndNodeConfig = Record<string, never>;
 
@@ -216,6 +243,7 @@ export type FlowNodeConfig =
   | { node_type: "collect_input"; config: CollectInputNodeConfig }
   | { node_type: "condition"; config: ConditionNodeConfig }
   | { node_type: "set_tag"; config: SetTagNodeConfig }
+  | { node_type: "export_order"; config: ExportOrderNodeConfig }
   | { node_type: "ai_reply"; config: AiReplyNodeConfig }
   | { node_type: "handoff"; config: HandoffNodeConfig }
   | { node_type: "end"; config: EndNodeConfig };

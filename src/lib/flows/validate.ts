@@ -732,6 +732,50 @@ function validateNode(
       break;
     }
 
+    case "export_order": {
+      const cfg = node.config as {
+        product_id?: string;
+        address_var_key?: string;
+        next_node_key?: string;
+      };
+      if (!cfg.product_id) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "product_id",
+          message: "Export-order needs a product to attach orders to.",
+        });
+      }
+      if (!cfg.address_var_key?.trim()) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "address_var_key",
+          message: "Export-order needs a var_key holding the delivery address.",
+        });
+      }
+      if (!cfg.next_node_key) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: "Export-order must point to a next node.",
+        });
+      } else if (!knownKeys.has(cfg.next_node_key)) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "next_node_key",
+          message: `Export-order points to non-existent node "${cfg.next_node_key}".`,
+        });
+      }
+      break;
+    }
+
     case "handoff":
     case "end":
       // Terminal nodes have no outgoing edges; nothing to validate
@@ -783,6 +827,7 @@ function outgoingEdges(node: NodeInput): string[] {
     case "send_media":
     case "collect_input":
     case "set_tag":
+    case "export_order":
     case "ai_reply": {
       const cfg = node.config as { next_node_key?: string };
       return cfg.next_node_key ? [cfg.next_node_key] : [];

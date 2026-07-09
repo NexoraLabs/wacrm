@@ -49,6 +49,7 @@ export function deriveCanvasEdges(nodes: BuilderNode[]): CanvasEdge[] {
       case "send_media":
       case "collect_input":
       case "set_tag":
+      case "export_order":
       case "ai_reply": {
         const next = (cfg as { next_node_key?: string }).next_node_key;
         if (next && knownKeys.has(next)) {
@@ -180,6 +181,7 @@ export function outgoingSlots(node: BuilderNode): OutgoingSlot[] {
     case "send_media":
     case "collect_input":
     case "set_tag":
+    case "export_order":
     case "ai_reply":
       return [{ id: "next", label: "Next" }];
 
@@ -255,6 +257,7 @@ export function applyEdgeConnection(
     case "send_media":
     case "collect_input":
     case "set_tag":
+    case "export_order":
     case "ai_reply":
       if (sourceHandle === "next") return { next_node_key: targetKey };
       return null;
@@ -350,6 +353,7 @@ function patchedConfigWithoutKey(
     case "send_media":
     case "collect_input":
     case "set_tag":
+    case "export_order":
     case "ai_reply": {
       const next = (cfg as { next_node_key?: string }).next_node_key;
       if (next !== deletedKey) return null;

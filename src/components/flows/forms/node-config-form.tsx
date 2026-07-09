@@ -211,6 +211,16 @@ export function NodeConfigForm({
         />
       );
 
+    case "export_order":
+      return (
+        <ExportOrderForm
+          cfg={cfg as ExportOrderCfg}
+          allNodes={allNodes}
+          currentKey={node.node_key}
+          onUpdateConfig={onUpdateConfig}
+        />
+      );
+
     case "handoff":
       return (
         <TextRow
@@ -869,6 +879,167 @@ function useUserTags(): UserTag[] {
     };
   }, []);
   return tags;
+}
+
+// ============================================================
+// export_order
+// ============================================================
+
+interface ExportOrderCfg {
+  product_id?: string;
+  address_var_key?: string;
+  city_var_key?: string;
+  department_var_key?: string;
+  neighborhood_var_key?: string;
+  quantity_var_key?: string;
+  next_node_key?: string;
+}
+
+interface UserProduct {
+  id: string;
+  name: string;
+}
+
+/** Same fetch-on-mount pattern as useUserTags, scoped to /api/products. */
+function useProducts(): UserProduct[] {
+  const [products, setProducts] = useState<UserProduct[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/products").catch(() => null);
+        if (!res || !res.ok) return;
+        const json = (await res.json()) as { products?: UserProduct[] };
+        if (!cancelled) setProducts(json.products ?? []);
+      } catch {
+        // Products endpoint absent — caller falls back to raw input.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return products;
+}
+
+function VarKeyInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value.replace(/[^a-zA-Z0-9_]/g, ""))}
+        placeholder={placeholder}
+        className="bg-muted font-mono text-xs"
+      />
+    </div>
+  );
+}
+
+function ExportOrderForm({
+  cfg,
+  allNodes,
+  currentKey,
+  onUpdateConfig,
+}: {
+  cfg: ExportOrderCfg;
+  allNodes: BuilderNode[];
+  currentKey: string;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+}) {
+  const products = useProducts();
+
+  return (
+    <>
+      <div>
+        <label className="mb-1 block text-xs text-muted-foreground">Product</label>
+        {products.length > 0 ? (
+          <Select
+            value={cfg.product_id ?? ""}
+            onValueChange={(v) => onUpdateConfig({ product_id: v })}
+          >
+            <SelectTrigger className="bg-muted">
+              <SelectValue placeholder="Pick a product…" />
+            </SelectTrigger>
+            <SelectContent>
+              {products.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input
+            value={cfg.product_id ?? ""}
+            onChange={(e) => onUpdateConfig({ product_id: e.target.value })}
+            placeholder="Product UUID"
+            className="bg-muted font-mono text-xs"
+          />
+        )}
+        <p className="mt-1 text-[10px] text-muted-foreground">
+          Rows are appended to whichever Google Sheet this product is
+          connected to (Settings → Products → edit → Google Sheet export).
+        </p>
+      </div>
+
+      <p className="text-muted-foreground text-xs">
+        Which <code className="rounded bg-muted px-1">flow_runs.vars</code>{" "}
+        keys hold the shipping details — fill these in with the same keys
+        used by preceding &ldquo;Collect input&rdquo; nodes.
+      </p>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <VarKeyInput
+          label="Address (required)"
+          value={cfg.address_var_key ?? ""}
+          onChange={(v) => onUpdateConfig({ address_var_key: v })}
+          placeholder="e.g. address"
+        />
+        <VarKeyInput
+          label="City"
+          value={cfg.city_var_key ?? ""}
+          onChange={(v) => onUpdateConfig({ city_var_key: v })}
+          placeholder="e.g. city"
+        />
+        <VarKeyInput
+          label="Department / state"
+          value={cfg.department_var_key ?? ""}
+          onChange={(v) => onUpdateConfig({ department_var_key: v })}
+          placeholder="e.g. department"
+        />
+        <VarKeyInput
+          label="Neighborhood"
+          value={cfg.neighborhood_var_key ?? ""}
+          onChange={(v) => onUpdateConfig({ neighborhood_var_key: v })}
+          placeholder="e.g. neighborhood"
+        />
+        <VarKeyInput
+          label="Quantity (defaults to 1)"
+          value={cfg.quantity_var_key ?? ""}
+          onChange={(v) => onUpdateConfig({ quantity_var_key: v })}
+          placeholder="e.g. quantity"
+        />
+      </div>
+
+      <NextNodeRow
+        value={cfg.next_node_key ?? ""}
+        allNodes={allNodes}
+        currentKey={currentKey}
+        onChange={(v) => onUpdateConfig({ next_node_key: v })}
+        label="Then advance to"
+      />
+    </>
+  );
 }
 
 // ============================================================

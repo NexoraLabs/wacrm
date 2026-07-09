@@ -70,6 +70,29 @@ describe("deriveCanvasEdges — single-outgoing node types", () => {
     ]);
   });
 
+  it("derives a `next` edge from export_order", () => {
+    const edges = deriveCanvasEdges(
+      nodes(
+        {
+          node_key: "eo",
+          node_type: "export_order",
+          config: {
+            product_id: "p1",
+            address_var_key: "address",
+            next_node_key: "e",
+          },
+        },
+        { node_key: "e", node_type: "end", config: {} },
+      ),
+    );
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({
+      source: "eo",
+      target: "e",
+      sourceHandle: "next",
+    });
+  });
+
   it("skips dangling edges (next_node_key pointing nowhere)", () => {
     const edges = deriveCanvasEdges(
       nodes({
@@ -310,6 +333,9 @@ describe("outgoingSlots", () => {
     expect(each({ node_key: "x", node_type: "set_tag", config: {} })).toEqual([
       "next",
     ]);
+    expect(
+      each({ node_key: "x", node_type: "export_order", config: {} }),
+    ).toEqual(["next"]);
   });
 
   it("returns true/false slots for condition", () => {

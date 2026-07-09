@@ -48,12 +48,14 @@ import { retrieveKnowledge } from "@/lib/ai/knowledge";
 import { resolveProductPromptContext } from "@/lib/ai/product-context";
 import { latestUserMessage } from "@/lib/ai/query";
 import { showTypingIndicator } from "@/lib/whatsapp/typing-indicator";
+import { exportOrderRow } from "@/lib/google-sheets/export-order";
 import {
   type AiReplyNodeConfig,
   type CollectInputNodeConfig,
   type ConditionNodeConfig,
   type DispatchInboundInput,
   type DispatchInboundResult,
+  type ExportOrderNodeConfig,
   type FlowKeywordMediaTrigger,
   type FlowNodeRow,
   type FlowRow,
@@ -126,7 +128,8 @@ export function isAutoAdvancing(node_type: string): boolean {
     node_type === "send_message" ||
     node_type === "send_media" ||
     node_type === "condition" ||
-    node_type === "set_tag"
+    node_type === "set_tag" ||
+    node_type === "export_order"
   );
 }
 
@@ -800,6 +803,22 @@ async function advanceFromNodeKey(
         // strand the customer mid-flow.
         await logEvent(db, run.id, "error", node.node_key, {
           reason: "set_tag_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+      currentKey = cfg.next_node_key;
+      continue;
+    }
+    if (node.node_type === "export_order") {
+      const cfg = node.config as unknown as ExportOrderNodeConfig;
+      try {
+        await exportOrderRow(db, run, cfg);
+      } catch (err) {
+        // Non-fatal — log + advance. A missing sheet connection, a
+        // lapsed membership, or a Google API hiccup shouldn't strand
+        // the customer mid-flow.
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "export_order_failed",
           detail: err instanceof Error ? err.message : String(err),
         });
       }

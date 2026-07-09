@@ -9,6 +9,30 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.17.0] — 2026-07-09
+
+**Migration required:** `supabase/migrations/045_google_sheets_sync.sql`
+
+### Added
+
+- **Per-product Google Sheets order export.** Settings → Products →
+  edit a product → "Google Sheet export" lets an admin connect one
+  Google Sheet per product (via a shared service account — paste the
+  spreadsheet URL/id after sharing it with the account email shown).
+  A new Flows node type, **Export order**, appends one row (shipping
+  address/city/department/neighborhood + product + quantity) to that
+  product's sheet whenever a flow run passes through it — no manual
+  sync button, it fires automatically as customers complete checkout
+  (`src/lib/google-sheets/`, `src/lib/flows/types.ts` +
+  `engine.ts`, `src/components/settings/product-sheet-section.tsx`,
+  `src/app/api/products/[id]/google-sheet/route.ts`).
+- **Membership-gated:** connecting/exporting calls
+  `requireActiveSubscription` (`src/lib/billing/gate.ts`) — the first
+  real caller of that gate. No-op today since
+  `BILLING_ENFORCEMENT_ENABLED` is unset; once billing enforcement is
+  turned on, this becomes a paid-plan-only feature with no code
+  changes needed.
+
 ## [0.16.0] — 2026-07-09
 
 **Migration required:** `supabase/migrations/044_contact_address_fields.sql`

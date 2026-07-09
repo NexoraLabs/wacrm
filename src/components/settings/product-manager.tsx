@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { SettingsPanelHead } from './settings-panel-head';
+import { ProductSheetSection } from './product-sheet-section';
 import {
   Dialog,
   DialogContent,
@@ -500,6 +501,8 @@ export function ProductManager() {
                 Setup, not a replacement for it.
               </p>
             </div>
+
+            {editingId && <ProductSheetSection productId={editingId} />}
           </div>
 
           <DialogFooter className="bg-popover border-border">

@@ -17,6 +17,7 @@
  */
 
 import {
+  FileSpreadsheet,
   Flag,
   GitFork,
   Inbox,
@@ -50,6 +51,7 @@ export type NodeType =
   | 'collect_input'
   | 'condition'
   | 'set_tag'
+  | 'export_order'
   | 'ai_reply'
   | 'handoff'
   | 'end';
@@ -154,6 +156,13 @@ export const NODE_META: Record<
     blurb: 'Adds or removes a contact tag',
     category: 'logic',
   },
+  export_order: {
+    label: 'Export order',
+    icon: FileSpreadsheet,
+    color: 'text-lime-400',
+    blurb: "Appends an order row to the product's Google Sheet",
+    category: 'logic',
+  },
   ai_reply: {
     label: 'AI reply',
     icon: Sparkles,
@@ -214,6 +223,7 @@ const NODE_HUE: Record<NodeType, { l: number; c: number; h: number }> = {
   collect_input: { l: 0.65, c: 0.1, h: 185 }, // teal — capture
   condition: { l: 0.72, c: 0.15, h: 65 }, // amber — a fork in the road
   set_tag: { l: 0.65, c: 0.15, h: 350 }, // pink
+  export_order: { l: 0.68, c: 0.16, h: 135 }, // lime — order log / sheet
   ai_reply: { l: 0.68, c: 0.15, h: 85 }, // warm gold — AI/spark
   handoff: { l: 0.65, c: 0.17, h: 16 }, // rose — hands off
   end: { l: 0.55, c: 0.01, h: 260 }, // neutral grey — terminal
@@ -424,6 +434,18 @@ export function summarizeNode(node: BuilderNode): string | null {
       return tagId
         ? `${mode} tag ${tagId.slice(0, 8)}…`
         : `${mode} tag (none picked)`;
+    }
+    case 'export_order': {
+      const productId =
+        typeof cfg.product_id === 'string' ? cfg.product_id : '';
+      const addressKey =
+        typeof cfg.address_var_key === 'string' ? cfg.address_var_key : '';
+      // No product name available without an async lookup here; show a
+      // short prefix of the UUID, same convention as set_tag's tag_id.
+      if (!productId) return 'Export order (no product picked)';
+      return addressKey
+        ? `Product ${productId.slice(0, 8)}… ← vars.${addressKey}`
+        : `Product ${productId.slice(0, 8)}… (no address var picked)`;
     }
     case 'ai_reply': {
       const prompt = typeof cfg.prompt === 'string' ? cfg.prompt : '';
