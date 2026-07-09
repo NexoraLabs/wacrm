@@ -52,6 +52,10 @@ export function ContactForm({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [company, setCompany] = useState('');
+  const [address, setAddress] = useState('');
+  const [city, setCity] = useState('');
+  const [department, setDepartment] = useState('');
+  const [neighborhood, setNeighborhood] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Duplicate-phone detection for NEW contacts. `exact` (same digits)
@@ -73,6 +77,10 @@ export function ContactForm({
       setPhone(contact?.phone ?? '');
       setEmail(contact?.email ?? '');
       setCompany(contact?.company ?? '');
+      setAddress(contact?.address ?? '');
+      setCity(contact?.city ?? '');
+      setDepartment(contact?.department ?? '');
+      setNeighborhood(contact?.neighborhood ?? '');
       setSelectedTagIds(contactTags.map((ct) => ct.tag_id));
       setDupMatch(null);
       fetchTags();
@@ -154,6 +162,10 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            address: address.trim() || null,
+            city: city.trim() || null,
+            department: department.trim() || null,
+            neighborhood: neighborhood.trim() || null,
             updated_at: new Date().toISOString(),
           })
           .eq('id', contactId);
@@ -168,6 +180,10 @@ export function ContactForm({
             phone: phone.trim(),
             email: email.trim() || null,
             company: company.trim() || null,
+            address: address.trim() || null,
+            city: city.trim() || null,
+            department: department.trim() || null,
+            neighborhood: neighborhood.trim() || null,
           })
           .select('id')
           .single();
@@ -320,6 +336,59 @@ export function ContactForm({
               value={company}
               onChange={(e) => setCompany(e.target.value)}
               placeholder="Acme Inc."
+              className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="cf-address" className="text-muted-foreground">
+              Address
+            </Label>
+            <Input
+              id="cf-address"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="Calle 10 # 20-30"
+              className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-2">
+              <Label htmlFor="cf-city" className="text-muted-foreground">
+                City
+              </Label>
+              <Input
+                id="cf-city"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="Bogotá"
+                className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="cf-department" className="text-muted-foreground">
+                Department
+              </Label>
+              <Input
+                id="cf-department"
+                value={department}
+                onChange={(e) => setDepartment(e.target.value)}
+                placeholder="Cundinamarca"
+                className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="cf-neighborhood" className="text-muted-foreground">
+              Neighborhood
+            </Label>
+            <Input
+              id="cf-neighborhood"
+              value={neighborhood}
+              onChange={(e) => setNeighborhood(e.target.value)}
+              placeholder="Chapinero"
               className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
             />
           </div>

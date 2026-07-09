@@ -131,6 +131,10 @@ export function ImportModal({
   const [parsedRows, setParsedRows] = useState<ParsedContactRow[]>([]);
   const [hasTagsColumn, setHasTagsColumn] = useState(false);
   const [hasCompanyColumn, setHasCompanyColumn] = useState(false);
+  const [hasAddressColumn, setHasAddressColumn] = useState(false);
+  const [hasCityColumn, setHasCityColumn] = useState(false);
+  const [hasDepartmentColumn, setHasDepartmentColumn] = useState(false);
+  const [hasNeighborhoodColumn, setHasNeighborhoodColumn] = useState(false);
   const [tagColorByKey, setTagColorByKey] = useState<Map<string, string>>(
     new Map()
   );
@@ -147,6 +151,10 @@ export function ImportModal({
     setParsedRows([]);
     setHasTagsColumn(false);
     setHasCompanyColumn(false);
+    setHasAddressColumn(false);
+    setHasCityColumn(false);
+    setHasDepartmentColumn(false);
+    setHasNeighborhoodColumn(false);
     setTagColorByKey(new Map());
     setResult(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -169,15 +177,23 @@ export function ImportModal({
       rows,
       hasTagsColumn: csvHasTags,
       hasCompanyColumn: csvHasCompany,
+      hasAddressColumn: csvHasAddress,
+      hasCityColumn: csvHasCity,
+      hasDepartmentColumn: csvHasDepartment,
+      hasNeighborhoodColumn: csvHasNeighborhood,
     } = parseContactCsv(text);
 
     if (rows.length === 0) {
       toast.error(
-        'No valid rows found. Ensure CSV has a "phone" column header.'
+        'No valid rows found. Ensure CSV has a "phone" (or "celular") column header.'
       );
       setParsedRows([]);
       setHasTagsColumn(false);
       setHasCompanyColumn(false);
+      setHasAddressColumn(false);
+      setHasCityColumn(false);
+      setHasDepartmentColumn(false);
+      setHasNeighborhoodColumn(false);
       setTagColorByKey(new Map());
       return;
     }
@@ -185,6 +201,10 @@ export function ImportModal({
     setParsedRows(rows);
     setHasTagsColumn(csvHasTags);
     setHasCompanyColumn(csvHasCompany);
+    setHasAddressColumn(csvHasAddress);
+    setHasCityColumn(csvHasCity);
+    setHasDepartmentColumn(csvHasDepartment);
+    setHasNeighborhoodColumn(csvHasNeighborhood);
 
     if (csvHasTags && accountId) {
       const { data: tags } = await supabase
@@ -276,6 +296,10 @@ export function ImportModal({
           name: row.name || null,
           email: row.email || null,
           company: row.company || null,
+          address: row.address || null,
+          city: row.city || null,
+          department: row.department || null,
+          neighborhood: row.neighborhood || null,
         }));
 
         const { data, error } = await supabase
@@ -380,10 +404,20 @@ export function ImportModal({
   // values, so an all-empty tags column still renders for validation.
   const previewHasTags =
     hasTagsColumn || preview.some((row) => row.tagNames.length > 0);
-  // Company: AND — hide unless the CSV declares it and preview has data,
-  // avoiding an all-dash column that wastes horizontal space.
+  // Company/address fields: AND — hide unless the CSV declares the column
+  // and preview has data, avoiding an all-dash column that wastes
+  // horizontal space.
   const previewHasCompany =
     hasCompanyColumn && preview.some((row) => row.company?.trim());
+  const previewHasAddress =
+    hasAddressColumn && preview.some((row) => row.address?.trim());
+  const previewHasCity =
+    hasCityColumn && preview.some((row) => row.city?.trim());
+  const previewHasDepartment =
+    hasDepartmentColumn && preview.some((row) => row.department?.trim());
+  const previewHasNeighborhood =
+    hasNeighborhoodColumn &&
+    preview.some((row) => row.neighborhood?.trim());
 
   const tagStats = useMemo(() => {
     const names = new Set<string>();
@@ -409,7 +443,11 @@ export function ImportModal({
               <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
                 phone
               </code>{' '}
-              column. Optional:{' '}
+              (or{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
+                celular
+              </code>
+              ) column. Optional:{' '}
               <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
                 name
               </code>
@@ -423,9 +461,46 @@ export function ImportModal({
               </code>
               ,{' '}
               <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
+                address
+              </code>
+              ,{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
+                city
+              </code>
+              ,{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
+                department
+              </code>
+              ,{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
+                neighborhood
+              </code>
+              ,{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
                 tags
               </code>{' '}
-              (comma-separated; quote multi-tag cells).
+              (comma-separated; quote multi-tag cells). Spanish headers work
+              too —{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
+                nombre
+              </code>
+              ,{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
+                direccion
+              </code>
+              ,{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
+                ciudad
+              </code>
+              ,{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
+                departamento
+              </code>
+              ,{' '}
+              <code className="rounded bg-muted px-1 py-0.5 text-[11px] text-muted-foreground">
+                barrio
+              </code>{' '}
+              are all recognized.
             </DialogDescription>
           </DialogHeader>
 
@@ -522,6 +597,26 @@ export function ImportModal({
                             Company
                           </th>
                         )}
+                        {previewHasAddress && (
+                          <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                            Address
+                          </th>
+                        )}
+                        {previewHasCity && (
+                          <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                            City
+                          </th>
+                        )}
+                        {previewHasDepartment && (
+                          <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                            Department
+                          </th>
+                        )}
+                        {previewHasNeighborhood && (
+                          <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
+                            Neighborhood
+                          </th>
+                        )}
                         {previewHasTags && (
                           <th className="px-3 py-2 text-left font-medium whitespace-nowrap text-muted-foreground">
                             Tags
@@ -559,6 +654,38 @@ export function ImportModal({
                               <PreviewCell
                                 value={row.company || '—'}
                                 maxWidth="max-w-[7rem]"
+                              />
+                            </td>
+                          )}
+                          {previewHasAddress && (
+                            <td className="px-3 py-2 text-muted-foreground">
+                              <PreviewCell
+                                value={row.address || '—'}
+                                maxWidth="max-w-[9rem]"
+                              />
+                            </td>
+                          )}
+                          {previewHasCity && (
+                            <td className="px-3 py-2 text-muted-foreground">
+                              <PreviewCell
+                                value={row.city || '—'}
+                                maxWidth="max-w-[6rem]"
+                              />
+                            </td>
+                          )}
+                          {previewHasDepartment && (
+                            <td className="px-3 py-2 text-muted-foreground">
+                              <PreviewCell
+                                value={row.department || '—'}
+                                maxWidth="max-w-[6rem]"
+                              />
+                            </td>
+                          )}
+                          {previewHasNeighborhood && (
+                            <td className="px-3 py-2 text-muted-foreground">
+                              <PreviewCell
+                                value={row.neighborhood || '—'}
+                                maxWidth="max-w-[6rem]"
                               />
                             </td>
                           )}

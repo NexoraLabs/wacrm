@@ -97,6 +97,10 @@ export interface Contact {
   name?: string;
   email?: string;
   company?: string;
+  address?: string;
+  city?: string;
+  department?: string;
+  neighborhood?: string;
   avatar_url?: string;
   created_at: string;
   updated_at: string;

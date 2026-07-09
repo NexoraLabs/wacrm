@@ -8,8 +8,44 @@ export interface ParsedContactRow {
   name?: string;
   email?: string;
   company?: string;
+  address?: string;
+  city?: string;
+  department?: string;
+  neighborhood?: string;
   /** Tag names from the optional `tags` column (comma/semicolon separated). */
   tagNames: string[];
+}
+
+/** Lowercase + strip diacritics so "Dirección" matches the "direccion" alias. */
+function normalizeHeader(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
+/** English + Spanish header names accepted for each field, normalized. */
+const HEADER_ALIASES = {
+  phone: ['phone', 'celular', 'telefono', 'numero'],
+  name: ['name', 'nombre'],
+  email: ['email', 'correo'],
+  company: ['company', 'empresa'],
+  address: ['address', 'direccion'],
+  city: ['city', 'ciudad'],
+  department: ['department', 'departamento', 'estado', 'state'],
+  neighborhood: ['neighborhood', 'barrio'],
+  tags: ['tags', 'etiquetas'],
+} as const;
+
+function findHeaderIndex(
+  headers: string[],
+  field: keyof typeof HEADER_ALIASES,
+): number {
+  for (const alias of HEADER_ALIASES[field]) {
+    const idx = headers.indexOf(alias);
+    if (idx !== -1) return idx;
+  }
+  return -1;
 }
 
 /** Split a CSV cell into unique tag names (case-insensitive de-dupe). */
@@ -37,27 +73,49 @@ export interface ParseContactCsvResult {
   hasTagsColumn: boolean;
   /** True when the CSV header includes a `company` column. */
   hasCompanyColumn: boolean;
+  /** True when the CSV header includes an `address`/`direccion` column. */
+  hasAddressColumn: boolean;
+  /** True when the CSV header includes a `city`/`ciudad` column. */
+  hasCityColumn: boolean;
+  /** True when the CSV header includes a `department`/`departamento` column. */
+  hasDepartmentColumn: boolean;
+  /** True when the CSV header includes a `neighborhood`/`barrio` column. */
+  hasNeighborhoodColumn: boolean;
 }
+
+const EMPTY_RESULT: ParseContactCsvResult = {
+  rows: [],
+  hasTagsColumn: false,
+  hasCompanyColumn: false,
+  hasAddressColumn: false,
+  hasCityColumn: false,
+  hasDepartmentColumn: false,
+  hasNeighborhoodColumn: false,
+};
 
 export function parseContactCsv(text: string): ParseContactCsvResult {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) {
-    return { rows: [], hasTagsColumn: false, hasCompanyColumn: false };
+    return EMPTY_RESULT;
   }
 
   const headers = lines[0]
     .split(',')
-    .map((h) => h.trim().toLowerCase().replace(/["']/g, ''));
+    .map((h) => normalizeHeader(h.trim().replace(/["']/g, '')));
 
-  const phoneIdx = headers.indexOf('phone');
+  const phoneIdx = findHeaderIndex(headers, 'phone');
   if (phoneIdx === -1) {
-    return { rows: [], hasTagsColumn: false, hasCompanyColumn: false };
+    return EMPTY_RESULT;
   }
 
-  const nameIdx = headers.indexOf('name');
-  const emailIdx = headers.indexOf('email');
-  const companyIdx = headers.indexOf('company');
-  const tagsIdx = headers.indexOf('tags');
+  const nameIdx = findHeaderIndex(headers, 'name');
+  const emailIdx = findHeaderIndex(headers, 'email');
+  const companyIdx = findHeaderIndex(headers, 'company');
+  const addressIdx = findHeaderIndex(headers, 'address');
+  const cityIdx = findHeaderIndex(headers, 'city');
+  const departmentIdx = findHeaderIndex(headers, 'department');
+  const neighborhoodIdx = findHeaderIndex(headers, 'neighborhood');
+  const tagsIdx = findHeaderIndex(headers, 'tags');
 
   const rows: ParsedContactRow[] = [];
 
@@ -66,23 +124,21 @@ export function parseContactCsv(text: string): ParseContactCsvResult {
     if (!line) continue;
 
     const values = parseCsvLine(line);
-    const phone = values[phoneIdx]?.replace(/["']/g, '').trim();
+    const cell = (idx: number): string | undefined =>
+      idx >= 0 ? values[idx]?.replace(/["']/g, '').trim() || undefined : undefined;
+
+    const phone = cell(phoneIdx);
     if (!phone) continue;
 
     rows.push({
       phone,
-      name:
-        nameIdx >= 0
-          ? values[nameIdx]?.replace(/["']/g, '').trim() || undefined
-          : undefined,
-      email:
-        emailIdx >= 0
-          ? values[emailIdx]?.replace(/["']/g, '').trim() || undefined
-          : undefined,
-      company:
-        companyIdx >= 0
-          ? values[companyIdx]?.replace(/["']/g, '').trim() || undefined
-          : undefined,
+      name: cell(nameIdx),
+      email: cell(emailIdx),
+      company: cell(companyIdx),
+      address: cell(addressIdx),
+      city: cell(cityIdx),
+      department: cell(departmentIdx),
+      neighborhood: cell(neighborhoodIdx),
       tagNames:
         tagsIdx >= 0 ? parseTagCell(values[tagsIdx]?.replace(/["']/g, '')) : [],
     });
@@ -92,6 +148,10 @@ export function parseContactCsv(text: string): ParseContactCsvResult {
     rows,
     hasTagsColumn: tagsIdx >= 0,
     hasCompanyColumn: companyIdx >= 0,
+    hasAddressColumn: addressIdx >= 0,
+    hasCityColumn: cityIdx >= 0,
+    hasDepartmentColumn: departmentIdx >= 0,
+    hasNeighborhoodColumn: neighborhoodIdx >= 0,
   };
 }
 

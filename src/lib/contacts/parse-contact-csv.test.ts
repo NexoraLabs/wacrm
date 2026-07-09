@@ -33,6 +33,10 @@ describe('parseContactCsv', () => {
     expect(parseContactCsv(csv)).toEqual({
       hasTagsColumn: true,
       hasCompanyColumn: false,
+      hasAddressColumn: false,
+      hasCityColumn: false,
+      hasDepartmentColumn: false,
+      hasNeighborhoodColumn: false,
       rows: [
         {
           phone: '+15551234567',
@@ -59,6 +63,10 @@ describe('parseContactCsv', () => {
     expect(parseContactCsv(csv)).toEqual({
       hasTagsColumn: false,
       hasCompanyColumn: false,
+      hasAddressColumn: false,
+      hasCityColumn: false,
+      hasDepartmentColumn: false,
+      hasNeighborhoodColumn: false,
       rows: [
         {
           phone: '+15551234567',
@@ -69,5 +77,38 @@ describe('parseContactCsv', () => {
         },
       ],
     });
+  });
+
+  it('recognizes Spanish header aliases for phone/name/address fields', () => {
+    const csv = `celular,nombre,direccion,ciudad,departamento,barrio
++573001234567,Juana Pérez,Calle 10 # 20-30,Bogotá,Cundinamarca,Chapinero`;
+
+    const result = parseContactCsv(csv);
+    expect(result.hasAddressColumn).toBe(true);
+    expect(result.hasCityColumn).toBe(true);
+    expect(result.hasDepartmentColumn).toBe(true);
+    expect(result.hasNeighborhoodColumn).toBe(true);
+    expect(result.rows).toEqual([
+      {
+        phone: '+573001234567',
+        name: 'Juana Pérez',
+        email: undefined,
+        company: undefined,
+        address: 'Calle 10 # 20-30',
+        city: 'Bogotá',
+        department: 'Cundinamarca',
+        neighborhood: 'Chapinero',
+        tagNames: [],
+      },
+    ]);
+  });
+
+  it('recognizes an accented "Dirección" header', () => {
+    const csv = `phone,Dirección
++15551234567,123 Main St`;
+
+    const result = parseContactCsv(csv);
+    expect(result.hasAddressColumn).toBe(true);
+    expect(result.rows[0].address).toBe('123 Main St');
   });
 });

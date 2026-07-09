@@ -9,6 +9,25 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.16.0] — 2026-07-09
+
+**Migration required:** `supabase/migrations/044_contact_address_fields.sql`
+
+### Added
+
+- **Contact address fields (address/city/department/neighborhood).**
+  Added dedicated `contacts` columns for shipping-relevant fields
+  common outside the US — e.g. Colombia's "departamento"/"barrio" —
+  editable from the Add/Edit Contact form and the contact detail
+  view's Details tab (`src/components/contacts/contact-form.tsx`,
+  `contact-detail-view.tsx`).
+- **CSV contact import now accepts those columns**, plus Spanish
+  header aliases across every importable field (`celular` for phone,
+  `nombre` for name, `direccion`/`ciudad`/`departamento`/`barrio`,
+  accent- and case-insensitive) so a Spanish-language Google Sheets
+  export can be imported without renaming headers first
+  (`src/lib/contacts/parse-contact-csv.ts`, `import-modal.tsx`).
+
 ## [0.15.2] — 2026-07-09
 
 ### Fixed
