@@ -554,6 +554,66 @@ async function endRun(
 // new current_node_key before returning.
 // ============================================================
 
+/**
+ * Shared AI-answer generation, used by the `ai_reply` node and by the
+ * "free text at a button menu" intercept in handleReplyForActiveRun.
+ * Returns null (rather than throwing) when there's no AI configured or
+ * the model produced nothing usable — callers decide what "no answer"
+ * means for them (fail the run vs. fall through to the reprompt policy).
+ */
+async function generateAiAnswer(
+  db: AdminClient,
+  run: FlowRunRow,
+  metaMessageId: string,
+  extraPrompt?: string,
+): Promise<{ whatsapp_message_id: string } | null> {
+  await showTypingIndicator(db, {
+    accountId: run.account_id,
+    conversationId: run.conversation_id!,
+    metaMessageId,
+  });
+
+  const aiConfig = await loadAiConfig(db, run.account_id);
+  if (!aiConfig) return null;
+
+  const messages = await buildConversationContext(db, run.conversation_id!);
+  const knowledge = await retrieveKnowledge(
+    db,
+    run.account_id,
+    aiConfig,
+    latestUserMessage(messages),
+  );
+  const productContext = await resolveProductPromptContext(
+    db,
+    run.account_id,
+    run.conversation_id!,
+  );
+  const extraInstruction = [productContext, extraPrompt]
+    .filter((s): s is string => Boolean(s && s.trim()))
+    .join("\n\n");
+
+  const systemPrompt = buildSystemPrompt({
+    userPrompt: aiConfig.systemPrompt,
+    // Not "auto_reply" — that mode teaches the model the HANDOFF_SENTINEL
+    // protocol, which has no listener here; a flow has its own explicit
+    // `handoff` node type for that job.
+    mode: "draft",
+    knowledge,
+    extraInstruction,
+  });
+  const { text } = await generateReply({ config: aiConfig, systemPrompt, messages });
+  if (!text.trim()) return null;
+
+  const { whatsapp_message_id } = await engineSendText({
+    accountId: run.account_id,
+    userId: run.user_id,
+    conversationId: run.conversation_id!,
+    contactId: run.contact_id!,
+    text,
+  });
+  return { whatsapp_message_id };
+}
+
 async function advanceFromNodeKey(
   db: AdminClient,
   run: FlowRunRow,
@@ -749,67 +809,20 @@ async function advanceFromNodeKey(
     if (node.node_type === "ai_reply") {
       const cfg = node.config as unknown as AiReplyNodeConfig;
       try {
-        await showTypingIndicator(db, {
-          accountId: run.account_id,
-          conversationId: run.conversation_id!,
+        const result = await generateAiAnswer(
+          db,
+          run,
           metaMessageId,
-        });
-
-        const aiConfig = await loadAiConfig(db, run.account_id);
-        if (!aiConfig) {
-          throw new Error("AI assistant is not set up for this account");
-        }
-
-        const messages = await buildConversationContext(
-          db,
-          run.conversation_id!,
-        );
-        const knowledge = await retrieveKnowledge(
-          db,
-          run.account_id,
-          aiConfig,
-          latestUserMessage(messages),
-        );
-        const productContext = await resolveProductPromptContext(
-          db,
-          run.account_id,
-          run.conversation_id!,
-        );
-        const extraInstruction = [
-          productContext,
           interpolateVars(cfg.prompt, run.vars),
-        ]
-          .filter((s): s is string => Boolean(s && s.trim()))
-          .join("\n\n");
-
-        const systemPrompt = buildSystemPrompt({
-          userPrompt: aiConfig.systemPrompt,
-          // Not "auto_reply" — that mode teaches the model the
-          // HANDOFF_SENTINEL protocol, which has no listener here; a
-          // flow already has its own explicit `handoff` node type for
-          // that job. Mirrors Automations' own ai_reply step, which
-          // uses "draft" for the same reason.
-          mode: "draft",
-          knowledge,
-          extraInstruction,
-        });
-        const { text } = await generateReply({
-          config: aiConfig,
-          systemPrompt,
-          messages,
-        });
-        if (!text.trim()) throw new Error("AI generated an empty reply");
-
-        const { whatsapp_message_id } = await engineSendText({
-          accountId: run.account_id,
-    userId: run.user_id,
-          conversationId: run.conversation_id!,
-          contactId: run.contact_id!,
-          text,
-        });
+        );
+        if (!result) {
+          throw new Error(
+            "AI assistant is not set up for this account, or generated an empty reply",
+          );
+        }
         await logEvent(db, run.id, "message_sent", node.node_key, {
           node_type: "ai_reply",
-          whatsapp_message_id,
+          whatsapp_message_id: result.whatsapp_message_id,
         });
       } catch (err) {
         await logEvent(db, run.id, "error", node.node_key, {
@@ -1145,6 +1158,47 @@ async function handleReplyForActiveRun(
       flow_run_id: run.id,
       outcome: outcome.outcome,
     };
+  }
+
+  // A customer typing a free-form question while parked at a button/list
+  // menu (instead of tapping an option) shouldn't just get the same menu
+  // resent — try answering it with AI first, same generation path as the
+  // ai_reply node. Doesn't touch current_node_key or reprompt_count, so
+  // the menu's buttons are still tappable right after. Falls through to
+  // the ordinary reprompt/handoff policy below only when there's no AI
+  // configured or it produced nothing usable.
+  if (
+    message.kind === "text" &&
+    (currentNode.node_type === "send_buttons" ||
+      currentNode.node_type === "send_list")
+  ) {
+    let aiResult: { whatsapp_message_id: string } | null = null;
+    try {
+      aiResult = await generateAiAnswer(
+        db,
+        run,
+        message.meta_message_id,
+        "Responde breve (máximo 3 líneas) la pregunta del cliente usando el " +
+          "contexto del producto y el historial. No repitas el menú de " +
+          "opciones — el cliente ya lo tiene en pantalla.",
+      );
+    } catch (err) {
+      await logEvent(db, run.id, "error", currentNode.node_key, {
+        reason: "off_menu_ai_answer_failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+    if (aiResult) {
+      await logEvent(db, run.id, "message_sent", currentNode.node_key, {
+        node_type: "off_menu_ai_answer",
+        whatsapp_message_id: aiResult.whatsapp_message_id,
+      });
+      return {
+        consumed: true,
+        flow_run_id: run.id,
+        outcome: "off_menu_answered",
+      };
+    }
   }
 
   // No match → fallback. Apply the policy.

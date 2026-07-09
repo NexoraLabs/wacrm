@@ -126,8 +126,25 @@ export async function dispatchInboundToAiReply(
     if (conv.assigned_agent_id) return // a human owns this thread
     if (conv.ai_autoreply_disabled) return // handed off / turned off here
     // Cheap early-out; the authoritative cap check is the atomic claim
-    // below (this read can race a concurrent inbound).
-    if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) return
+    // below (this read can race a concurrent inbound). Still sticky +
+    // notifies like the atomic path below — otherwise a contact who
+    // keeps messaging past the cap gets silently ignored forever with
+    // nobody aware, since this branch would return before ever reaching
+    // the notify call later in the function.
+    if (conv.ai_reply_count >= config.autoReplyMaxPerConversation) {
+      await db
+        .from('conversations')
+        .update({ ai_autoreply_disabled: true })
+        .eq('id', conversationId)
+      await notifyOwnerAutoReplyStopped(db, {
+        accountId,
+        userId: configOwnerUserId,
+        conversationId,
+        contactId,
+        reason: 'reply_cap_reached',
+      })
+      return
+    }
 
     const messages = await buildConversationContext(db, conversationId)
     if (messages.length === 0) return

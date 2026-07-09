@@ -407,6 +407,7 @@ export interface DispatchInboundResult {
     | "handed_off"
     | "fallback_fired"
     | "media_trigger_fired"
+    | "off_menu_answered"
     | "duplicate_inbound_ignored"
     | "no_match";
 }

@@ -9,6 +9,32 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.14.3] — 2026-07-09
+
+### Fixed
+
+- **AI auto-reply's per-conversation cap could silently go dark
+  forever.** The cheap early-out check (`ai_reply_count >= cap`) in
+  `dispatchInboundToAiReply` returned with no signal to anyone —
+  unlike the atomic-claim path just below it, which does mark the
+  conversation `ai_autoreply_disabled` and notify the owner. A contact
+  who kept messaging past the cap got permanently ignored with nobody
+  aware. Both paths now behave the same way
+  (`src/lib/ai/auto-reply.ts`).
+
+### Added
+
+- **Flows answer off-menu questions with AI instead of just
+  reprompting.** A customer who types a free-form question while a
+  flow is waiting on a button/list tap (initial menu, or any other
+  `send_buttons`/`send_list` node) now gets an AI-generated answer
+  (same path as the `ai_reply` node) instead of the menu being resent
+  as an "unrecognized reply." Falls back to the existing
+  reprompt/handoff policy only when no AI is configured or it
+  produces nothing usable. Doesn't touch `current_node_key` or
+  `reprompt_count`, so the menu's buttons stay valid right after
+  (`src/lib/flows/engine.ts`).
+
 ## [0.14.2] — 2026-07-09
 
 ### Fixed
