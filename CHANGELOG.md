@@ -9,6 +9,25 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.14.5] — 2026-07-09
+
+### Fixed
+
+- **AI auto-reply stood down for the entire account whenever ANY
+  active `keyword_match`/`new_message_received` automation existed —
+  not just when one actually applied to the message.** Once a flow
+  run ends (e.g. after "Ver precio" or "Cómo funciona"), the AI
+  auto-reply is the only safety net left for follow-up questions. An
+  account with even one narrow keyword automation (e.g. matching only
+  "quiero pedirlo") had that safety net permanently disabled for
+  *every* message, since the check only asked "does one exist" rather
+  than "does one match this text." Now checks real relevance via the
+  same keyword-matching logic Automations itself uses
+  (`triggerMatches`, exported from `src/lib/automations/engine.ts` and
+  reused by `src/lib/ai/auto-reply.ts`); `new_message_received`
+  automations still always stand it down (they fire on every
+  message), matching prior behavior.
+
 ## [0.14.4] — 2026-07-09
 
 ### Fixed

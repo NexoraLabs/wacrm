@@ -9,6 +9,8 @@ import { buildSystemPrompt } from './defaults'
 import { latestUserMessage } from './query'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { showTypingIndicator } from '@/lib/whatsapp/typing-indicator'
+import { triggerMatches } from '@/lib/automations/engine'
+import type { Automation } from '@/types'
 
 /**
  * A conversation just went dark on auto-reply (handoff, empty model
@@ -61,6 +63,11 @@ interface DispatchArgs {
   /** The inbound message id being replied to — shows a "typing…"
    *  bubble on the customer's WhatsApp while the LLM call is in flight. */
   metaMessageId: string
+  /** The customer's raw message text — needed to check whether an active
+   *  keyword_match automation actually matches THIS message (see the
+   *  stand-down check below) rather than standing down just because one
+   *  exists on the account. */
+  messageText: string
 }
 
 /**
@@ -92,7 +99,7 @@ interface DispatchArgs {
 export async function dispatchInboundToAiReply(
   args: DispatchArgs,
 ): Promise<void> {
-  const { accountId, conversationId, contactId, configOwnerUserId, metaMessageId } = args
+  const { accountId, conversationId, contactId, configOwnerUserId, metaMessageId, messageText } = args
 
   try {
     const db = supabaseAdmin()
@@ -104,18 +111,30 @@ export async function dispatchInboundToAiReply(
     // caller already excludes messages a Flow consumed. Message-level
     // automations (`new_message_received` / `keyword_match`) are
     // dispatched independently for this same inbound and may send their
-    // own reply, so if the account has any active one we stand down to
-    // avoid double-texting the customer. (Relationship triggers like
-    // `first_inbound_message` don't count — they're not per-message
-    // auto-responders.)
+    // own reply, so we stand down when one will actually fire for THIS
+    // message, to avoid double-texting the customer. (Relationship
+    // triggers like `first_inbound_message` don't count — they're not
+    // per-message auto-responders.)
+    //
+    // Checking real relevance (not just "does one exist") matters: an
+    // account can have an active keyword_match automation for one exact
+    // phrase (e.g. an order-intent trigger) while still wanting the AI
+    // to answer every OTHER message — standing down unconditionally
+    // silenced the AI for the entire account the moment any such
+    // automation existed, regardless of whether it applied.
     const { data: autoResponders } = await db
       .from('automations')
-      .select('id')
+      .select('id, trigger_type, trigger_config')
       .eq('account_id', accountId)
       .eq('is_active', true)
       .in('trigger_type', ['new_message_received', 'keyword_match'])
-      .limit(1)
-    if (autoResponders && autoResponders.length > 0) return
+    if (
+      autoResponders?.some((a) =>
+        triggerMatches(a as unknown as Automation, { message_text: messageText }),
+      )
+    ) {
+      return
+    }
 
     const { data: conv, error: convErr } = await db
       .from('conversations')

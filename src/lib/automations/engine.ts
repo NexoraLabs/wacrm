@@ -691,7 +691,13 @@ async function resolveConversationId(args: ExecuteArgs): Promise<string> {
   return data.id as string
 }
 
-function triggerMatches(automation: Automation, ctx: AutomationContext | undefined): boolean {
+/**
+ * Whether an automation's trigger actually matches this inbound event —
+ * exported so `dispatchInboundToAiReply` (src/lib/ai/auto-reply.ts) can
+ * check real relevance before standing down for a `keyword_match`
+ * automation, instead of standing down just because one exists.
+ */
+export function triggerMatches(automation: Automation, ctx: AutomationContext | undefined): boolean {
   if (automation.trigger_type !== 'keyword_match') return true
   const cfg = automation.trigger_config as KeywordMatchTriggerConfig
   if (!cfg?.keywords || cfg.keywords.length === 0) return false
