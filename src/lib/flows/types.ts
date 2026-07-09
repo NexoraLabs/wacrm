@@ -262,6 +262,9 @@ export interface FlowRow {
   trigger_config: KeywordTriggerConfig | FirstInboundTriggerConfig | Record<string, unknown>;
   entry_node_id: string | null;
   fallback_policy: FlowFallbackPolicy;
+  /** Phrase-triggered media replies that fire regardless of where an
+   *  active run currently sits — see FlowKeywordMediaTrigger. */
+  keyword_media_triggers: FlowKeywordMediaTrigger[];
   execution_count: number;
   last_executed_at: string | null;
   created_at: string;
@@ -328,6 +331,28 @@ export const DEFAULT_FALLBACK_POLICY: FlowFallbackPolicy = {
 };
 
 // ============================================================
+// Keyword-triggered media (matches flows.keyword_media_triggers JSONB)
+// ============================================================
+
+/**
+ * A phrase-triggered media reply. Checked on every text reply to an
+ * active run, independent of the current node — lets a flow answer
+ * "can I see it?"-type asks with photos/video at any point in the
+ * conversation without interrupting whatever the run is otherwise
+ * waiting for (see handleReplyForActiveRun in engine.ts).
+ */
+export interface FlowKeywordMediaTrigger {
+  /** Substring match, case/accent-insensitive. Any one keyword matching fires the trigger. */
+  keywords: string[];
+  /** Sent in order; each is a separate WhatsApp message. */
+  media: Array<{
+    media_url: string;
+    media_type: "image" | "video" | "audio" | "document";
+    caption?: string;
+  }>;
+}
+
+// ============================================================
 // Engine input — what `dispatchInboundToFlows` accepts
 // ============================================================
 
@@ -381,6 +406,7 @@ export interface DispatchInboundResult {
     | "completed"
     | "handed_off"
     | "fallback_fired"
+    | "media_trigger_fired"
     | "duplicate_inbound_ignored"
     | "no_match";
 }

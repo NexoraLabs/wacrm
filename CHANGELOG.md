@@ -9,6 +9,31 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.14.2] — 2026-07-09
+
+### Fixed
+
+- **A flow's reprompt could crash the whole dispatcher and go
+  completely silent.** Re-sending a button/list menu after an
+  unmatched reply (`send_buttons`/`send_list` fallback) wasn't wrapped
+  in a try/catch, unlike the equivalent `collect_input` branch — a
+  failed Meta send there threw out of `dispatchInboundToFlows`
+  entirely, which the webhook reads as "no flow consumed this
+  message" and hands off to the (often-disabled) AI auto-reply
+  fallback instead of logging the real error. Customer got no reply at
+  all with nothing to explain why (`src/lib/flows/engine.ts`).
+
+### Added
+
+- **`flows.keyword_media_triggers`.** Lets a flow react to a phrase
+  (e.g. "cómo es", "ver el producto") by sending one or more media
+  messages no matter where an active run currently sits — mid
+  button-menu, mid AI Q&A loop, anywhere. A plain `keyword_match`
+  Automation can't do this reliably: content-level automation triggers
+  are suppressed whenever a flow run consumes the inbound. **Migration
+  required:** apply `supabase/migrations/043_flows_keyword_media_triggers.sql`
+  (`src/lib/flows/engine.ts`, `src/lib/flows/types.ts`).
+
 ## [0.14.1] — 2026-07-08
 
 ### Fixed

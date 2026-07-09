@@ -1,0 +1,33 @@
+-- ============================================================
+-- 043_flows_keyword_media_triggers.sql
+--
+-- Adds `flows.keyword_media_triggers` — a JSONB list letting a flow
+-- react to specific phrases ("cómo es", "ver el producto", ...) by
+-- sending one or more media messages, no matter where the customer
+-- currently sits in the flow (mid button-menu, mid AI Q&A loop,
+-- etc). Unlike a `keyword_match` Automation, this fires even while a
+-- flow run is active — Automations' content-level triggers are
+-- suppressed whenever a flow run consumes the inbound (see the
+-- webhook's dispatch comment), so there was previously no reliable
+-- way to react to an arbitrary phrase mid-flow.
+--
+-- Shape (each array element):
+--   {
+--     "keywords": ["como es", "ver el producto", ...],
+--     "media": [
+--       { "media_url": "...", "media_type": "image" | "video" | "audio" | "document", "caption": "..." }
+--     ]
+--   }
+--
+-- Matching is substring, case/accent-insensitive (see
+-- normalizeForKeywordMatch in src/lib/flows/engine.ts). A match sends
+-- every item in `media` in order, then leaves the run exactly where
+-- it was — it does not advance current_node_key or touch
+-- reprompt_count, so whatever the flow was waiting for is still
+-- pending afterward.
+--
+-- Idempotent — safe to re-run.
+-- ============================================================
+
+alter table public.flows
+  add column if not exists keyword_media_triggers jsonb not null default '[]'::jsonb;

@@ -54,6 +54,7 @@ import {
   type ConditionNodeConfig,
   type DispatchInboundInput,
   type DispatchInboundResult,
+  type FlowKeywordMediaTrigger,
   type FlowNodeRow,
   type FlowRow,
   type FlowRunRow,
@@ -970,6 +971,29 @@ export async function dispatchInboundToFlows(
   }
 }
 
+/** Lowercase + strip diacritics so "Cómo es?" matches a "como es" keyword. */
+function normalizeForKeywordMatch(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
+
+function matchKeywordMediaTrigger(
+  triggers: FlowKeywordMediaTrigger[],
+  text: string,
+): FlowKeywordMediaTrigger | null {
+  const haystack = normalizeForKeywordMatch(text);
+  if (!haystack) return null;
+  for (const trigger of triggers) {
+    const hit = trigger.keywords.some((k) =>
+      haystack.includes(normalizeForKeywordMatch(k)),
+    );
+    if (hit) return trigger;
+  }
+  return null;
+}
+
 async function handleReplyForActiveRun(
   db: AdminClient,
   run: FlowRunRow,
@@ -1005,6 +1029,50 @@ async function handleReplyForActiveRun(
   if (!currentNode) {
     await endRun(db, run.id, "failed", "current_node_not_found");
     return { consumed: true, flow_run_id: run.id, outcome: "no_match" };
+  }
+
+  const flow = await loadFlow(db, run.flow_id);
+
+  // Phrase-triggered media (e.g. "cómo es", "ver el producto") fires
+  // regardless of what the run is currently waiting for — a customer
+  // mid button-menu or mid AI Q&A can ask to see photos without it
+  // being read as an unmatched reply. Doesn't touch current_node_key
+  // or reprompt_count, so whatever the flow expects next is unchanged.
+  if (message.kind === "text" && flow?.keyword_media_triggers?.length) {
+    const trigger = matchKeywordMediaTrigger(
+      flow.keyword_media_triggers,
+      message.text,
+    );
+    if (trigger) {
+      for (const item of trigger.media) {
+        try {
+          const { whatsapp_message_id } = await engineSendMedia({
+            accountId: run.account_id,
+            userId: run.user_id,
+            conversationId: run.conversation_id!,
+            contactId: run.contact_id!,
+            kind: item.media_type,
+            link: item.media_url,
+            caption: item.caption,
+          });
+          await logEvent(db, run.id, "message_sent", run.current_node_key, {
+            node_type: "keyword_media_trigger",
+            media_type: item.media_type,
+            whatsapp_message_id,
+          });
+        } catch (err) {
+          await logEvent(db, run.id, "error", run.current_node_key, {
+            reason: "keyword_media_trigger_send_failed",
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      return {
+        consumed: true,
+        flow_run_id: run.id,
+        outcome: "media_trigger_fired",
+      };
+    }
   }
 
   // Two ways a reply can advance:
@@ -1080,9 +1148,7 @@ async function handleReplyForActiveRun(
   }
 
   // No match → fallback. Apply the policy.
-  const policy = resolveFallbackPolicy(
-    (await loadFlow(db, run.flow_id))?.fallback_policy,
-  );
+  const policy = resolveFallbackPolicy(flow?.fallback_policy);
   const newReprompts = run.reprompt_count + 1;
   await db
     .from("flow_runs")
@@ -1100,10 +1166,31 @@ async function handleReplyForActiveRun(
   }
   if (action.type === "reprompt") {
     // Re-send the same prompt. Same node, no current_node_key change.
+    // Every branch here must catch its own send failure — an uncaught
+    // throw would propagate out of dispatchInboundToFlows entirely,
+    // which its caller (the webhook) reads as "no flow consumed this
+    // message" and hands off to the AI auto-reply fallback instead of
+    // logging the real error. That fallback is a separate opt-in
+    // feature and often off, so the customer would see no reply at
+    // all with no record of why.
     if (currentNode.node_type === "send_buttons") {
-      await sendButtonsAndSuspend(db, run, currentNode);
+      try {
+        await sendButtonsAndSuspend(db, run, currentNode);
+      } catch (err) {
+        await logEvent(db, run.id, "error", currentNode.node_key, {
+          reason: "reprompt_send_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
     } else if (currentNode.node_type === "send_list") {
-      await sendListAndSuspend(db, run, currentNode);
+      try {
+        await sendListAndSuspend(db, run, currentNode);
+      } catch (err) {
+        await logEvent(db, run.id, "error", currentNode.node_key, {
+          reason: "reprompt_send_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
     } else if (currentNode.node_type === "collect_input") {
       // Customer typed something we couldn't accept (empty after trim,
       // or var_key missing — rare). Re-send the prompt so they try again.
