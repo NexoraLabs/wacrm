@@ -9,6 +9,20 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.15.2] — 2026-07-09
+
+### Fixed
+
+- **Keyword photo/video triggers stopped working once a flow finished.**
+  `flows.keyword_media_triggers` (phrases like "ver el producto",
+  "fotos", "como es") only fired while a customer had an active flow
+  run — confirmed in production, where a customer asked "Puedo ver el
+  producto" *after* their order was already placed (flow run ended)
+  and the AI auto-reply answered instead, falsely claiming it couldn't
+  send images through chat. Now also checked when the contact has no
+  active run, across every active flow's configured triggers
+  (`src/lib/flows/engine.ts`).
+
 ## [0.15.1] — 2026-07-09
 
 ### Fixed

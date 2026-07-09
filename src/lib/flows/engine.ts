@@ -963,6 +963,18 @@ export async function dispatchInboundToFlows(
       return handleReplyForActiveRun(db, activeRun, input.message, nodes);
     }
 
+    // No active run (e.g. the flow already completed an order) — a
+    // keyword media trigger should still fire so "ver el producto" /
+    // "fotos" etc. send photos instead of silently falling through to
+    // the AI auto-reply, which has no way to actually send media and
+    // used to just claim it couldn't. Checked across every active
+    // flow's configured triggers, not just the one the contact last ran.
+    const mediaTriggerResult = await checkKeywordMediaTriggerNoActiveRun(
+      db,
+      input,
+    );
+    if (mediaTriggerResult) return mediaTriggerResult;
+
     // No active run → look for a flow whose entry trigger matches.
     const flow = await findEntryFlow(
       db,
@@ -1003,6 +1015,56 @@ function matchKeywordMediaTrigger(
       haystack.includes(normalizeForKeywordMatch(k)),
     );
     if (hit) return trigger;
+  }
+  return null;
+}
+
+/**
+ * Same keyword→media match as inside an active run, but for the case
+ * where the contact has no run at all (flow completed, or never
+ * started one). Sends against the conversation directly since there's
+ * no flow_run to log events against.
+ */
+async function checkKeywordMediaTriggerNoActiveRun(
+  db: AdminClient,
+  input: DispatchInboundInput,
+): Promise<DispatchInboundResult | null> {
+  if (input.message.kind !== "text") return null;
+
+  const { data: flows, error } = await db
+    .from("flows")
+    .select("*")
+    .eq("account_id", input.accountId)
+    .eq("status", "active");
+  if (error || !flows) return null;
+
+  for (const flow of flows as FlowRow[]) {
+    if (!flow.keyword_media_triggers?.length) continue;
+    const trigger = matchKeywordMediaTrigger(
+      flow.keyword_media_triggers,
+      input.message.text,
+    );
+    if (!trigger) continue;
+
+    for (const item of trigger.media) {
+      try {
+        await engineSendMedia({
+          accountId: input.accountId,
+          userId: input.userId,
+          conversationId: input.conversationId,
+          contactId: input.contactId,
+          kind: item.media_type,
+          link: item.media_url,
+          caption: item.caption,
+        });
+      } catch (err) {
+        console.error(
+          "[flows] keyword_media_trigger (no active run) send failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+    return { consumed: true, outcome: "media_trigger_fired" };
   }
   return null;
 }
