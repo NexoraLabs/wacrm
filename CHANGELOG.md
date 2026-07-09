@@ -9,6 +9,22 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.15.0] — 2026-07-09
+
+### Added
+
+- **Model picker dropdown in Settings → AI Agents → Setup.** The
+  Model field was free text — you had to know the exact slug for
+  your provider. Now each provider (OpenAI, Anthropic, OpenRouter)
+  shows a shortlist of common models, with a "Custom — type your
+  own…" option that reveals a text input for anything not listed
+  (essential for OpenRouter, which proxies 100+ models across every
+  vendor — Llama, Gemini, Mistral, DeepSeek, and more, none of which
+  can be fully enumerated). Switching provider swaps in that
+  provider's default model; picking Custom preserves whatever was
+  already typed instead of blanking the field
+  (`src/lib/ai/model-options.ts`, `src/components/settings/ai-config.tsx`).
+
 ## [0.14.5] — 2026-07-09
 
 ### Fixed

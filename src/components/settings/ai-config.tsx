@@ -27,6 +27,7 @@ import {
 import { SettingsPanelHead } from './settings-panel-head';
 import { AiKnowledgeCard } from './ai-knowledge';
 import { AI_PROVIDER_DEFAULT_MODEL } from '@/lib/ai/defaults';
+import { AI_MODEL_OPTIONS, CUSTOM_MODEL_VALUE } from '@/lib/ai/model-options';
 import type { AiProvider } from '@/lib/ai/types';
 
 const MASKED_KEY = '••••••••••••••••';
@@ -55,6 +56,13 @@ export function AiConfig() {
   const [configured, setConfigured] = useState(false);
   const [provider, setProvider] = useState<AiProvider>('openai');
   const [model, setModel] = useState(AI_PROVIDER_DEFAULT_MODEL.openai);
+  // Whether the Model field shows the free-text "Custom" input rather
+  // than the dropdown's matched preset. Kept as its own state (not
+  // derived from `model`) so picking "Custom" while `model` still
+  // happens to equal a preset value (the common case — nothing's been
+  // typed yet) actually shows the text input instead of silently
+  // snapping back to the matched preset.
+  const [customModel, setCustomModel] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [keyEdited, setKeyEdited] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -86,6 +94,11 @@ export function AiConfig() {
         setConfigured(true);
         setProvider(data.provider);
         setModel(data.model);
+        setCustomModel(
+          !AI_MODEL_OPTIONS[data.provider as AiProvider]?.some(
+            (o) => o.value === data.model,
+          ),
+        );
         setSystemPrompt(data.system_prompt ?? '');
         setIsActive(data.is_active);
         setAutoReplyEnabled(data.auto_reply_enabled);
@@ -111,7 +124,8 @@ export function AiConfig() {
   }, [accountId, fetchConfig]);
 
   // Swap the model default when the provider changes, unless the user
-  // typed a custom model.
+  // typed a custom model — in which case keep their text, but re-check
+  // whether it happens to match one of the NEW provider's presets.
   const handleProviderChange = (next: AiProvider) => {
     setProvider(next);
     const isDefaultModel =
@@ -119,8 +133,16 @@ export function AiConfig() {
       model === AI_PROVIDER_DEFAULT_MODEL.anthropic ||
       model === AI_PROVIDER_DEFAULT_MODEL.openrouter ||
       model.trim() === '';
-    if (isDefaultModel) setModel(AI_PROVIDER_DEFAULT_MODEL[next]);
+    if (isDefaultModel) {
+      setModel(AI_PROVIDER_DEFAULT_MODEL[next]);
+      setCustomModel(false);
+    } else {
+      setCustomModel(!AI_MODEL_OPTIONS[next].some((o) => o.value === model));
+    }
   };
+
+  const presetModelOptions = AI_MODEL_OPTIONS[provider];
+  const modelSelectValue = customModel ? CUSTOM_MODEL_VALUE : model;
 
   const keyPayload = () => (keyEdited ? apiKey.trim() : undefined);
 
@@ -275,18 +297,54 @@ export function AiConfig() {
 
               <div className="space-y-2">
                 <Label htmlFor="ai-model">Model</Label>
-                <Input
-                  id="ai-model"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  placeholder={AI_PROVIDER_DEFAULT_MODEL[provider]}
+                <Select
+                  value={modelSelectValue}
+                  onValueChange={(v) => {
+                    if (!v) return;
+                    if (v === CUSTOM_MODEL_VALUE) {
+                      setCustomModel(true);
+                    } else {
+                      setCustomModel(false);
+                      setModel(v);
+                    }
+                  }}
                   disabled={disabled}
-                />
+                >
+                  <SelectTrigger id="ai-model">
+                    {/* Base UI's SelectValue shows the raw value verbatim
+                        unless given a formatter — fine for real model
+                        slugs, but the sentinel needs a friendly label. */}
+                    <SelectValue>
+                      {(v: string) =>
+                        v === CUSTOM_MODEL_VALUE ? 'Custom — type your own…' : v
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {presetModelOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                    <SelectItem value={CUSTOM_MODEL_VALUE}>
+                      Custom — type your own…
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                {modelSelectValue === CUSTOM_MODEL_VALUE && (
+                  <Input
+                    aria-label="Custom model"
+                    value={model}
+                    onChange={(e) => setModel(e.target.value)}
+                    placeholder={AI_PROVIDER_DEFAULT_MODEL[provider]}
+                    disabled={disabled}
+                  />
+                )}
                 {provider === 'openrouter' && (
                   <p className="text-xs text-muted-foreground">
-                    Any OpenRouter model slug, e.g. anthropic/claude-3.7-sonnet,
-                    meta-llama/llama-3.3-70b-instruct, google/gemini-2.0-flash-001,
-                    deepseek/deepseek-chat.
+                    OpenRouter lists 100+ models across every major vendor —
+                    pick Custom for anything not in the shortlist, e.g.
+                    mistralai/mistral-large, x-ai/grok-2.
                   </p>
                 )}
               </div>
