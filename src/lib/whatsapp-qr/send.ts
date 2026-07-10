@@ -46,9 +46,11 @@ export async function sendTextMessage(args: {
 }): Promise<QrSendResult> {
   const sock = requireSocket(args.configId)
   const jid = phoneToJid(args.to)
+  console.log(`[whatsapp-qr:debug] sending text to ${jid} via ${args.configId}`)
   const result = await enqueueSend(args.configId, () =>
     sock.sendMessage(jid, { text: args.text }),
   )
+  console.log('[whatsapp-qr:debug] send result:', JSON.stringify(result?.key))
   if (!result?.key.id) throw new QrSendError('WhatsApp did not return a message id')
   return { messageId: result.key.id }
 }
