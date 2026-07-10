@@ -82,6 +82,7 @@ export function NodeConfigForm({
             label="Text sent to the customer"
             value={(cfg as { text?: string }).text ?? ""}
             onChange={(v) => onUpdateConfig({ text: v })}
+            rows={6}
           />
           <NextNodeRow
             value={(cfg as { next_node_key?: string }).next_node_key ?? ""}
@@ -100,6 +101,7 @@ export function NodeConfigForm({
             label="Instructions for the AI"
             value={(cfg as { prompt?: string }).prompt ?? ""}
             onChange={(v) => onUpdateConfig({ prompt: v })}
+            rows={5}
           />
           <p className="text-muted-foreground text-xs">
             The AI writes and sends the reply using the conversation
