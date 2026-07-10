@@ -45,7 +45,15 @@ function newClient(): OAuth2Client {
       'Google OAuth is not configured on this server (missing GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET).'
     );
   }
-  return new OAuth2Client(creds.clientId, creds.clientSecret, redirectUri());
+  const uri = redirectUri();
+  // Logged deliberately: a redirect_uri that doesn't exactly match the
+  // one registered in the Google Cloud OAuth client (e.g. NEXT_PUBLIC_
+  // SITE_URL still pointing at a platform-assigned host instead of the
+  // real domain) fails as an opaque redirect_uri_mismatch on Google's
+  // side with nothing in our own logs — this line is the fast way to
+  // confirm what this deployment is actually sending.
+  console.log('[google oauth] redirect_uri:', uri);
+  return new OAuth2Client(creds.clientId, creds.clientSecret, uri);
 }
 
 /** Google's consent screen URL. `state` is the CSRF nonce, verified against a cookie by the callback route. */
