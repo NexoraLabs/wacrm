@@ -38,8 +38,10 @@ const SECURITY_HEADERS = [
       "default-src 'self'",
       // Next.js needs 'unsafe-inline' for its inline hydration script
       // and 'unsafe-eval' in dev + some production optimisations.
-      // Nonce-based CSP is a later project.
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      // Nonce-based CSP is a later project. apis.google.com loads the
+      // gapi bootstrap for the Google Sheets "Elegir hoja" picker
+      // (product-sheet-section.tsx).
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com",
       // Tailwind + inline style attributes on lots of components.
       "style-src 'self' 'unsafe-inline'",
       // Supabase public-bucket avatars, contact avatars (arbitrary
@@ -50,9 +52,14 @@ const SECURITY_HEADERS = [
       // and Supabase public-bucket audio/video the inbox renders.
       "media-src 'self' blob: https://*.supabase.co",
       "font-src 'self' data:",
-      // Supabase REST + realtime (WSS). All Meta API calls happen
-      // server-side, so graph.facebook.com does not belong here.
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+      // Supabase REST + realtime (WSS), plus the Google Picker/Drive
+      // APIs the gapi client calls directly from the browser. All Meta
+      // API calls happen server-side, so graph.facebook.com does not
+      // belong here.
+      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://*.googleapis.com https://content.googleapis.com",
+      // The Google Sheets file picker renders in an iframe served from
+      // docs.google.com.
+      "frame-src https://docs.google.com",
       "frame-ancestors 'none'",
       "base-uri 'self'",
       "form-action 'self'",
