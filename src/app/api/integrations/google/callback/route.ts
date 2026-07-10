@@ -16,8 +16,13 @@ import { exchangeCodeForTokens } from '@/lib/google-sheets/oauth';
 import { encrypt } from '@/lib/whatsapp/encryption';
 import { OAUTH_STATE_COOKIE } from '../connect/route';
 
-function settingsRedirect(request: Request, query: string): NextResponse {
-  const url = new URL('/settings', request.url);
+// Built from NEXT_PUBLIC_SITE_URL rather than `new URL(path, request.url)` —
+// behind this deployment's reverse proxy, `request.url` resolves to an
+// internal container address (e.g. 0.0.0.0), not the public domain, so
+// a request-relative redirect lands the browser on an unreachable URL.
+function settingsRedirect(query: string): NextResponse {
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? '';
+  const url = new URL('/settings', base || 'http://localhost');
   url.search = query;
   return NextResponse.redirect(url);
 }
@@ -33,10 +38,10 @@ export async function GET(request: Request) {
   const state = searchParams.get('state');
 
   if (error) {
-    return settingsRedirect(request, `?tab=google&google_error=${encodeURIComponent(error)}`);
+    return settingsRedirect(`?tab=google&google_error=${encodeURIComponent(error)}`);
   }
   if (!code || !state || !expectedState || state !== expectedState) {
-    return settingsRedirect(request, '?tab=google&google_error=invalid_state');
+    return settingsRedirect('?tab=google&google_error=invalid_state');
   }
 
   try {
@@ -57,12 +62,12 @@ export async function GET(request: Request) {
       );
     if (upsertError) {
       console.error('[google/callback] upsert error:', upsertError);
-      return settingsRedirect(request, '?tab=google&google_error=save_failed');
+      return settingsRedirect('?tab=google&google_error=save_failed');
     }
 
-    return settingsRedirect(request, '?tab=google&connected=1');
+    return settingsRedirect('?tab=google&connected=1');
   } catch (err) {
     console.error('[google/callback] error:', err);
-    return settingsRedirect(request, '?tab=google&google_error=exchange_failed');
+    return settingsRedirect('?tab=google&google_error=exchange_failed');
   }
 }
