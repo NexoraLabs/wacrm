@@ -103,7 +103,7 @@ export async function GET(request: Request) {
       const { data, error } = await supabase
         .from('whatsapp_config')
         .select(
-          'id, phone_number_id, waba_id, status, connected_at, registered_at, subscribed_apps_at, last_registration_error, label, is_default',
+          'id, provider, phone_number_id, waba_id, status, connected_at, registered_at, subscribed_apps_at, last_registration_error, label, is_default',
         )
         .eq('account_id', accountId)
         .order('created_at', { ascending: true })

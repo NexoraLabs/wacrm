@@ -15,6 +15,10 @@ and polish.
 
 ### Fixed
 
+- **The WhatsApp connection list in Settings never fetched `provider`,**
+  so a QR-connected number always rendered as an empty, unsaved Cloud
+  API card instead of its own QR pairing card —
+  `src/app/api/whatsapp/config/route.ts`'s list `GET`.
 - **`export_order` flow nodes could never actually be saved.** Migration
   045 added the Google Sheets order-export feature (types, builder UI,
   engine support) but never widened `flow_nodes`'s `node_type` CHECK
