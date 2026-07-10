@@ -9,6 +9,32 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.19.0] — 2026-07-10
+
+**Migration required:** `supabase/migrations/047_whatsapp_qr_provider.sql`
+
+### Added
+
+- **QR-linked WhatsApp as a second, optional connection method** (Settings
+  → WhatsApp connection → "Add number (QR — beta)"), alongside the
+  official Cloud API. Pairs like WhatsApp Web — no Meta Business
+  account, no template approval — meant for testing a new
+  product/business line cheaply before committing to official
+  onboarding; migrate to the Cloud API once it proves out. Runs
+  in-process via [Baileys](https://github.com/WhiskeySockets/Baileys),
+  reconnecting every paired number on boot (`instrumentation.ts`); the
+  send path paces outbound messages (~1.2s apart) to reduce ban risk on
+  the unofficial protocol. Broadcasts, message templates, and Flow
+  interactive-button/list steps stay Cloud-API-only — there's no
+  unofficial equivalent of Meta's approved-template system. New
+  dependencies: `baileys`, `qrcode`, `pino`, `jimp` —
+  `src/lib/whatsapp-qr/**` (session manager, send, inbound handler),
+  `processMessage`/`parseMessageContent` in
+  `src/app/api/whatsapp/webhook/route.ts` exported + generalized so
+  both connection methods share the same contact/conversation/flows/
+  automations pipeline, `src/components/settings/whatsapp-config.tsx`
+  (`QrNumberCard`).
+
 ## [0.18.0] — 2026-07-09
 
 **Migration required:** `supabase/migrations/046_google_oauth_connections.sql`

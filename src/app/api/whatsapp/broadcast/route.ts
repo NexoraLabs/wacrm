@@ -154,6 +154,18 @@ export async function POST(request: Request) {
       )
     }
 
+    // Broadcasts require Meta-approved templates — no unofficial
+    // equivalent exists, so a QR-connected default number can't send one.
+    if (config.provider === 'qr') {
+      return NextResponse.json(
+        {
+          error:
+            'Broadcasts require the official WhatsApp API. Set a Cloud API number as the default to send broadcasts.',
+        },
+        { status: 400 }
+      )
+    }
+
     const accessToken = decrypt(config.access_token)
 
     // Load the template row once so sendTemplateMessage can build

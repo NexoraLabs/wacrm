@@ -774,12 +774,216 @@ function NumberCard({
   );
 }
 
+type QrStatus = 'qr_pending' | 'connecting' | 'connected' | 'disconnected' | 'logged_out';
+
+/**
+ * A QR-linked ("beta") WhatsApp number — pairs like WhatsApp Web instead
+ * of going through Meta's official Cloud API. Meant for testing a new
+ * product/business line cheaply before committing to official
+ * onboarding; see 047_whatsapp_qr_provider.sql. Kept as its own
+ * component (not folded into NumberCard) since the connection lifecycle
+ * — generate QR, poll, scan, done — has nothing in common with the
+ * Cloud API credential form.
+ */
+function QrNumberCard({
+  config,
+  onSaved,
+  onDeleted,
+}: {
+  config: WhatsAppConfigType | null;
+  onSaved: () => void;
+  onDeleted: () => void;
+}) {
+  const isNew = config === null;
+  const [label, setLabel] = useState(config?.label ?? '');
+  const [starting, setStarting] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [configId, setConfigId] = useState<string | null>(config?.id ?? null);
+  const [status, setStatus] = useState<QrStatus | null>(null);
+  const [qrImage, setQrImage] = useState<string | null>(null);
+  const [linkedPhone, setLinkedPhone] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
+  const poll = useCallback(
+    async (id: string) => {
+      try {
+        const res = await fetch(`/api/whatsapp/qr-config/${id}/status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        setStatus(data.status);
+        setQrImage(data.qr ?? null);
+        setLinkedPhone(data.linked_phone_number ?? null);
+        if (data.status === 'connected') {
+          stopPolling();
+          toast.success('WhatsApp connected via QR');
+          onSaved();
+        }
+      } catch (err) {
+        console.error('qr status poll error:', err);
+      }
+    },
+    [onSaved, stopPolling],
+  );
+
+  useEffect(() => {
+    if (!configId) return;
+    void poll(configId);
+    pollRef.current = setInterval(() => void poll(configId), 2000);
+    return stopPolling;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [configId]);
+
+  async function handleGenerate() {
+    setStarting(true);
+    try {
+      const res = await fetch('/api/whatsapp/qr-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label: label.trim() || null }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data.error || 'Failed to start pairing');
+        return;
+      }
+      setConfigId(data.id);
+    } catch (err) {
+      console.error('qr generate error:', err);
+      toast.error('Failed to start pairing');
+    } finally {
+      setStarting(false);
+    }
+  }
+
+  async function handleDisconnect() {
+    if (!configId) return;
+    if (!confirm('Disconnect this WhatsApp number? You will need to scan a new QR to reconnect.')) return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/whatsapp/qr-config?id=${configId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json();
+        toast.error(data.error || 'Failed to disconnect');
+        return;
+      }
+      stopPolling();
+      onDeleted();
+    } catch (err) {
+      console.error('qr disconnect error:', err);
+      toast.error('Failed to disconnect');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const effectiveStatus = status ?? (config?.status === 'connected' ? 'connected' : 'qr_pending');
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-2">
+          <div>
+            <CardTitle className="text-foreground flex items-center gap-2">
+              {config?.label || (isNew ? 'New number (QR)' : 'WhatsApp number (QR)')}
+              <Badge variant="outline" className="text-xs">beta</Badge>
+            </CardTitle>
+            <CardDescription className="text-muted-foreground">
+              Pairs like WhatsApp Web — no Meta Business account needed. For testing a
+              product cheaply before moving it to the official API.
+            </CardDescription>
+          </div>
+          {effectiveStatus === 'connected' ? (
+            <Badge className="bg-green-600/15 text-green-600 border-green-600/30">
+              <CheckCircle2 className="size-3.5" /> Connected
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-muted-foreground">
+              <XCircle className="size-3.5" /> {effectiveStatus.replace('_', ' ')}
+            </Badge>
+          )}
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Alert>
+          <AlertTriangle className="size-4" />
+          <AlertTitle>Ban risk</AlertTitle>
+          <AlertDescription>
+            This uses an unofficial protocol. Use a spare/burner number, not your main one, and
+            keep volume low while testing — Meta can restrict numbers that send too fast or in
+            bulk. Broadcasts and message templates aren&apos;t available on QR-connected numbers.
+          </AlertDescription>
+        </Alert>
+
+        {isNew && !configId && (
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label className="text-muted-foreground">Label (optional)</Label>
+              <Input
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="e.g. Product test"
+                className="bg-muted border-border text-foreground placeholder:text-muted-foreground"
+              />
+            </div>
+            <Button onClick={handleGenerate} disabled={starting}>
+              {starting ? <Loader2 className="size-4 animate-spin" /> : null}
+              Generate QR
+            </Button>
+          </div>
+        )}
+
+        {configId && effectiveStatus !== 'connected' && (
+          <div className="flex flex-col items-center gap-3 py-4">
+            {qrImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={qrImage} alt="Scan with WhatsApp" className="size-64 rounded-lg border border-border" />
+            ) : (
+              <div className="flex size-64 items-center justify-center rounded-lg border border-dashed border-border">
+                <Loader2 className="size-6 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground text-center max-w-xs">
+              Open WhatsApp on the phone you want to connect → Settings → Linked devices → Link a
+              device, then scan this code.
+            </p>
+          </div>
+        )}
+
+        {effectiveStatus === 'connected' && (linkedPhone || config?.phone_number_id) && (
+          <p className="text-sm text-muted-foreground">
+            Linked number: <span className="text-foreground font-mono">{linkedPhone}</span>
+          </p>
+        )}
+
+        {!isNew && (
+          <Button
+            variant="outline"
+            onClick={handleDisconnect}
+            disabled={deleting}
+            className="border-border text-destructive hover:bg-destructive/10"
+          >
+            {deleting ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+            Disconnect
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export function WhatsAppConfig() {
   const { user, accountId, loading: authLoading, profileLoading } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [configs, setConfigs] = useState<WhatsAppConfigType[]>([]);
-  const [addingNew, setAddingNew] = useState(false);
+  const [addingNew, setAddingNew] = useState<'cloud_api' | 'qr' | null>(null);
   const loadedAccountIdRef = useRef<string | null>(null);
 
   const fetchConfigs = useCallback(async () => {
@@ -831,38 +1035,63 @@ export function WhatsAppConfig() {
             </div>
           ) : (
             <>
-              {configs.map((c) => (
-                <NumberCard
-                  key={c.id}
-                  config={c}
-                  onSaved={fetchConfigs}
-                  onDeleted={fetchConfigs}
-                  onSetDefault={fetchConfigs}
-                />
-              ))}
+              {configs.map((c) =>
+                c.provider === 'qr' ? (
+                  <QrNumberCard key={c.id} config={c} onSaved={fetchConfigs} onDeleted={fetchConfigs} />
+                ) : (
+                  <NumberCard
+                    key={c.id}
+                    config={c}
+                    onSaved={fetchConfigs}
+                    onDeleted={fetchConfigs}
+                    onSetDefault={fetchConfigs}
+                  />
+                ),
+              )}
 
-              {addingNew && (
+              {addingNew === 'cloud_api' && (
                 <NumberCard
                   config={null}
                   onSaved={() => {
-                    setAddingNew(false);
+                    setAddingNew(null);
                     fetchConfigs();
                   }}
                   onDeleted={fetchConfigs}
                   onSetDefault={fetchConfigs}
-                  onCancelNew={() => setAddingNew(false)}
+                  onCancelNew={() => setAddingNew(null)}
+                />
+              )}
+
+              {addingNew === 'qr' && (
+                <QrNumberCard
+                  config={null}
+                  onSaved={() => {
+                    setAddingNew(null);
+                    fetchConfigs();
+                  }}
+                  onDeleted={() => setAddingNew(null)}
                 />
               )}
 
               {!addingNew && canAddMore && (
-                <Button
-                  variant="outline"
-                  onClick={() => setAddingNew(true)}
-                  className="border-dashed border-border text-muted-foreground hover:text-foreground hover:bg-muted"
-                >
-                  <Plus className="size-4" />
-                  Add number
-                </Button>
+                <div className="flex flex-wrap gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={() => setAddingNew('cloud_api')}
+                    className="border-dashed border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                  >
+                    <Plus className="size-4" />
+                    Add number (Official API)
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setAddingNew('qr')}
+                    className="border-dashed border-border text-muted-foreground hover:text-foreground hover:bg-muted"
+                  >
+                    <Plus className="size-4" />
+                    Add number (QR — beta)
+                  </Button>
+                </div>
               )}
 
               {!canAddMore && (

@@ -33,7 +33,13 @@ function supabaseAdmin() {
   return _adminClient
 }
 
-interface WhatsAppMessage {
+// Exported so src/lib/whatsapp-qr/inbound.ts can build the same shape
+// from a Baileys message and reuse processMessage/parseMessageContent
+// below — the downstream pipeline (contact/conversation resolution,
+// messages insert, flows/automations/AI-reply/webhook fan-out) is
+// identical regardless of which connection method the message arrived
+// on.
+export interface WhatsAppMessage {
   id: string
   from: string
   timestamp: string
@@ -558,7 +564,8 @@ async function handleReaction(
   }
 }
 
-async function processMessage(
+// Exported — see the WhatsAppMessage comment above for why.
+export async function processMessage(
   message: WhatsAppMessage,
   contact: { profile: { name: string }; wa_id: string },
   // Tenancy. Resolved from the matched whatsapp_config row; every
@@ -569,11 +576,18 @@ async function processMessage(
   // (contacts, conversations). Always the admin who saved the
   // WhatsApp config; the choice is arbitrary post-017 but stable.
   configOwnerUserId: string,
-  accessToken: string,
+  // Undefined for QR-provider messages (no Meta credentials exist) —
+  // safe because parseMessageContent only reads this to verify a Meta
+  // media id, which QR callers skip via precomputedMediaUrl instead.
+  accessToken: string | undefined,
   // Exact whatsapp_config row resolved from this webhook payload's
   // phone_number_id — threaded through to anchor the conversation to
   // the number it arrived on (see findOrCreateConversation).
   configId: string,
+  // QR/Baileys callers pass an already-hosted media URL here — see
+  // parseMessageContent's precomputedMediaUrl param. Undefined for the
+  // Meta webhook path (unused).
+  precomputedMediaUrl?: string,
 ) {
   const senderPhone = normalizePhone(message.from)
   const contactName = contact.profile.name
@@ -619,7 +633,7 @@ async function processMessage(
 
   // Parse message content based on type
   const { contentText, mediaUrl, mediaType, interactiveReplyId } =
-    await parseMessageContent(message, accessToken)
+    await parseMessageContent(message, accessToken, precomputedMediaUrl)
 
   // Resolve swipe-reply context if present. A missing parent is fine —
   // we just store NULL and the UI renders the message without a quote.
@@ -824,9 +838,17 @@ async function processMessage(
   })
 }
 
-async function parseMessageContent(
+export async function parseMessageContent(
   message: WhatsAppMessage,
-  accessToken: string
+  accessToken?: string,
+  /**
+   * QR/Baileys callers already have the actual media bytes in hand
+   * (Baileys downloads them directly, no Meta mediaId to verify) and
+   * have already uploaded them somewhere durable — passing the
+   * resulting URL here skips the Meta-specific verify-and-proxy step
+   * below entirely. Unused by the Meta webhook path.
+   */
+  precomputedMediaUrl?: string,
 ): Promise<{
   contentText: string | null
   mediaUrl: string | null
@@ -847,8 +869,9 @@ async function parseMessageContent(
   const verifyAndBuildUrl = async (
     mediaId: string
   ): Promise<string | null> => {
+    if (precomputedMediaUrl) return precomputedMediaUrl
     try {
-      await getMediaUrl({ mediaId, accessToken })
+      await getMediaUrl({ mediaId, accessToken: accessToken! })
       return `/api/whatsapp/media/${mediaId}`
     } catch (error) {
       console.error(

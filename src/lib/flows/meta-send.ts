@@ -7,6 +7,10 @@ import {
   type InteractiveListSection,
   type MediaKind,
 } from '@/lib/whatsapp/meta-api'
+import {
+  sendTextMessage as sendQrTextMessage,
+  sendMediaMessage as sendQrMediaMessage,
+} from '@/lib/whatsapp-qr/send'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { resolveWhatsappConfigForConversation } from '@/lib/whatsapp/resolve-config'
 import {
@@ -84,9 +88,13 @@ export async function engineSendText(
     args.conversationId,
   )
 
-  const accessToken = decrypt(config.access_token)
+  const accessToken = config.provider === 'cloud_api' ? decrypt(config.access_token) : ''
 
   const attempt = async (phone: string): Promise<string> => {
+    if (config.provider === 'qr') {
+      const r = await sendQrTextMessage({ configId: config.id, to: phone, text: args.text })
+      return r.messageId
+    }
     const r = await sendTextMessage({
       phoneNumberId: config.phone_number_id,
       accessToken,
@@ -190,9 +198,20 @@ export async function engineSendMedia(
     args.conversationId,
   )
 
-  const accessToken = decrypt(config.access_token)
+  const accessToken = config.provider === 'cloud_api' ? decrypt(config.access_token) : ''
 
   const attempt = async (phone: string): Promise<string> => {
+    if (config.provider === 'qr') {
+      const r = await sendQrMediaMessage({
+        configId: config.id,
+        to: phone,
+        kind: args.kind,
+        link: args.link,
+        caption: args.caption,
+        filename: args.filename,
+      })
+      return r.messageId
+    }
     const r = await sendMediaMessage({
       phoneNumberId: config.phone_number_id,
       accessToken,
@@ -338,6 +357,12 @@ async function sendInteractiveViaMeta(
     input.accountId,
     input.conversationId,
   )
+
+  if (config.provider === 'qr') {
+    throw new Error(
+      'Interactive button/list messages require the official WhatsApp API — this number is connected via QR.',
+    )
+  }
 
   const accessToken = decrypt(config.access_token)
 

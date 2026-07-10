@@ -65,6 +65,12 @@ export async function resolveWhatsappConfigForConversation(
  * under the same WABA share the same template catalog, so any row's
  * token works; prefers the account's `is_default` row, falling back to
  * any other row. Returns `null` if the account has no numbers at all.
+ *
+ * Only ever returns a `provider='cloud_api'` row — every caller of this
+ * (template management, media proxy, registration diagnostics) is a
+ * Meta-specific operation with no QR/Baileys equivalent, so a QR row
+ * would just fail with a decrypt error on its null access_token instead
+ * of the caller's actual "not configured" message.
  */
 export async function resolveAnyWhatsappConfigForAccount(
   db: SupabaseClient,
@@ -75,6 +81,7 @@ export async function resolveAnyWhatsappConfigForAccount(
     .select('*')
     .eq('account_id', accountId)
     .eq('is_default', true)
+    .eq('provider', 'cloud_api')
     .maybeSingle();
   if (defaultConfig) return defaultConfig as WhatsAppConfig;
 
@@ -82,6 +89,7 @@ export async function resolveAnyWhatsappConfigForAccount(
     .from('whatsapp_config')
     .select('*')
     .eq('account_id', accountId)
+    .eq('provider', 'cloud_api')
     .limit(1)
     .maybeSingle();
   return (anyConfig as WhatsAppConfig) ?? null;

@@ -250,6 +250,16 @@ export interface WhatsAppConfig {
   id: string;
   user_id: string;
   account_id: string;
+  /**
+   * Connection method. 'cloud_api' (default) is Meta's official Business
+   * Platform — phone_number_id/access_token are required. 'qr' is an
+   * unofficial WhatsApp-Web-style pairing (Baileys, see
+   * src/lib/whatsapp-qr/) meant for low-volume product testing before
+   * committing to the official onboarding — see 047_whatsapp_qr_provider.sql.
+   * Templates, broadcasts, and interactive buttons/lists stay
+   * cloud_api-only; a 'qr' row has no phone_number_id/access_token.
+   */
+  provider: 'cloud_api' | 'qr';
   phone_number_id: string;
   waba_id?: string;
   access_token: string;

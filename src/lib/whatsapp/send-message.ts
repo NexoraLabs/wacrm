@@ -27,6 +27,10 @@ import {
   sendMediaMessage,
   type MediaKind,
 } from '@/lib/whatsapp/meta-api';
+import {
+  sendTextMessage as sendQrTextMessage,
+  sendMediaMessage as sendQrMediaMessage,
+} from '@/lib/whatsapp-qr/send';
 import { decrypt, encrypt, isLegacyFormat } from '@/lib/whatsapp/encryption';
 import { resolveWhatsappConfigForConversation } from '@/lib/whatsapp/resolve-config';
 import { supabaseAdmin } from '@/lib/flows/admin-client';
@@ -233,10 +237,18 @@ export async function sendMessageToConversation(
     );
   }
 
-  const accessToken = decrypt(config.access_token);
+  if (config.provider === 'qr' && messageType === 'template') {
+    throw new SendMessageError(
+      'template_not_supported',
+      'Template messages require the official WhatsApp API — this number is connected via QR.',
+      400
+    );
+  }
+
+  const accessToken = config.provider === 'cloud_api' ? decrypt(config.access_token) : '';
 
   // Self-heal legacy CBC ciphertexts. Fire-and-forget; idempotent.
-  if (isLegacyFormat(config.access_token)) {
+  if (config.provider === 'cloud_api' && isLegacyFormat(config.access_token)) {
     void db
       .from('whatsapp_config')
       .update({ access_token: encrypt(accessToken) })
@@ -301,6 +313,8 @@ export async function sendMessageToConversation(
   }
 
   const attempt = async (phone: string): Promise<string> => {
+    // messageType === 'template' is rejected above for provider='qr' —
+    // Baileys has no equivalent, only Meta-approved templates exist.
     if (messageType === 'template') {
       const result = await sendTemplateMessage({
         phoneNumberId: config.phone_number_id,
@@ -316,25 +330,38 @@ export async function sendMessageToConversation(
       return result.messageId;
     }
     if (isMediaKind) {
-      const result = await sendMediaMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
-        to: phone,
-        kind: messageType as MediaKind,
-        link: mediaUrl!,
-        caption: contentText || undefined,
-        filename: filename || undefined,
-        contextMessageId,
-      });
+      const result =
+        config.provider === 'qr'
+          ? await sendQrMediaMessage({
+              configId: config.id,
+              to: phone,
+              kind: messageType as MediaKind,
+              link: mediaUrl!,
+              caption: contentText || undefined,
+              filename: filename || undefined,
+            })
+          : await sendMediaMessage({
+              phoneNumberId: config.phone_number_id,
+              accessToken,
+              to: phone,
+              kind: messageType as MediaKind,
+              link: mediaUrl!,
+              caption: contentText || undefined,
+              filename: filename || undefined,
+              contextMessageId,
+            });
       return result.messageId;
     }
-    const result = await sendTextMessage({
-      phoneNumberId: config.phone_number_id,
-      accessToken,
-      to: phone,
-      text: contentText!,
-      contextMessageId,
-    });
+    const result =
+      config.provider === 'qr'
+        ? await sendQrTextMessage({ configId: config.id, to: phone, text: contentText! })
+        : await sendTextMessage({
+            phoneNumberId: config.phone_number_id,
+            accessToken,
+            to: phone,
+            text: contentText!,
+            contextMessageId,
+          });
     return result.messageId;
   };
 

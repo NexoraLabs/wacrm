@@ -4,6 +4,10 @@ import {
   sendMediaMessage,
   type MediaKind,
 } from '@/lib/whatsapp/meta-api'
+import {
+  sendTextMessage as sendQrTextMessage,
+  sendMediaMessage as sendQrMediaMessage,
+} from '@/lib/whatsapp-qr/send'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import { resolveWhatsappConfigForConversation } from '@/lib/whatsapp/resolve-config'
 import {
@@ -105,9 +109,20 @@ export async function engineSendMedia(
     args.accountId,
     args.conversationId,
   )
-  const accessToken = decrypt(config.access_token)
+  const accessToken = config.provider === 'cloud_api' ? decrypt(config.access_token) : ''
 
   const attempt = async (phone: string): Promise<string> => {
+    if (config.provider === 'qr') {
+      const r = await sendQrMediaMessage({
+        configId: config.id,
+        to: phone,
+        kind: args.kind,
+        link: args.link,
+        caption: args.caption,
+        filename: args.filename,
+      })
+      return r.messageId
+    }
     const r = await sendMediaMessage({
       phoneNumberId: config.phone_number_id,
       accessToken,
@@ -203,7 +218,13 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
     input.conversationId,
   )
 
-  const accessToken = decrypt(config.access_token)
+  if (config.provider === 'qr' && input.kind === 'template') {
+    throw new Error(
+      'Template messages require the official WhatsApp API — this number is connected via QR.',
+    )
+  }
+
+  const accessToken = config.provider === 'cloud_api' ? decrypt(config.access_token) : ''
 
   const attempt = async (phone: string): Promise<string> => {
     if (input.kind === 'template') {
@@ -215,6 +236,10 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
         language: input.language,
         params: input.params,
       })
+      return r.messageId
+    }
+    if (config.provider === 'qr') {
+      const r = await sendQrTextMessage({ configId: config.id, to: phone, text: input.text })
       return r.messageId
     }
     const r = await sendTextMessage({
