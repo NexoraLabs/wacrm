@@ -13,6 +13,13 @@ import { decrypt } from '@/lib/whatsapp/encryption';
  */
 
 const SCOPES = [
+  // openid + email get an id_token with an email claim, so the
+  // connected account can be shown by name in Settings → Google —
+  // without these, Google issues no id_token at all and the stored
+  // connection has no display email (harmless functionally, just
+  // shows as "unknown").
+  'openid',
+  'email',
   'https://www.googleapis.com/auth/spreadsheets',
   'https://www.googleapis.com/auth/drive.file',
 ];
