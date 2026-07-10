@@ -9,6 +9,21 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.19.1] — 2026-07-10
+
+**Migration required:** `supabase/migrations/048_flow_nodes_export_order_type.sql`
+
+### Fixed
+
+- **`export_order` flow nodes could never actually be saved.** Migration
+  045 added the Google Sheets order-export feature (types, builder UI,
+  engine support) but never widened `flow_nodes`'s `node_type` CHECK
+  constraint to allow the value — every other node-type addition
+  (migrations 016, 041) did this correctly, 045 didn't. Net effect:
+  since 045 shipped, no flow could ever complete a Google Sheets export,
+  regardless of how it was built — `src/lib/flows/types.ts`,
+  `src/lib/google-sheets/export-order.ts`.
+
 ## [0.19.0] — 2026-07-10
 
 **Migration required:** `supabase/migrations/047_whatsapp_qr_provider.sql`
