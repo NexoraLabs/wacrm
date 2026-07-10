@@ -119,7 +119,7 @@ export async function GET(request: Request) {
 
     const { data: config, error: configError } = await supabase
       .from('whatsapp_config')
-      .select('phone_number_id, access_token, status')
+      .select('phone_number_id, access_token, status, provider')
       .eq('id', configId)
       .eq('account_id', accountId)
       .maybeSingle()
@@ -140,6 +140,21 @@ export async function GET(request: Request) {
           message: 'No WhatsApp configuration saved yet. Fill in the form and click Save Configuration.',
         },
         { status: 200 }
+      )
+    }
+
+    // This route only ever probes Meta Cloud API credentials — a QR row
+    // has none (no phone_number_id/access_token to verify). The
+    // settings UI never calls this for a QR card, but guard anyway
+    // rather than crashing decrypt() on a null token.
+    if (config.provider === 'qr') {
+      return NextResponse.json(
+        {
+          connected: config.status === 'connected',
+          reason: 'qr_provider',
+          message: 'This number is connected via QR, not the Cloud API — nothing to verify here.',
+        },
+        { status: 200 },
       )
     }
 

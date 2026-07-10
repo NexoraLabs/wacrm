@@ -27,6 +27,9 @@ export async function showTypingIndicator(
       args.accountId,
       args.conversationId,
     )
+    // No Meta-style typing indicator exists for QR/Baileys — skip
+    // cleanly rather than crashing on a null access_token every time.
+    if (config.provider === 'qr') return
     await sendTypingIndicatorToMeta({
       phoneNumberId: config.phone_number_id,
       accessToken: decrypt(config.access_token),

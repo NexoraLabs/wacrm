@@ -14,11 +14,7 @@ import { authFolderPath, restoreAuthFolder, scheduleAuthSnapshot, clearAuthFolde
 import { jidToPhone } from './jid'
 import { handleInboundBaileysMessage } from './inbound'
 
-// TEMP: bumped from 'silent' to 'debug' while diagnosing "linked device
-// shows connected but the phone's own WhatsApp app never mirrors sent/
-// received messages" (2026-07-10). Revert to 'silent' once resolved —
-// Baileys' debug logger is very chatty.
-const logger = pino({ level: 'debug' })
+const logger = pino({ level: 'silent' })
 
 interface SessionEntry {
   sock: WASocket
@@ -78,52 +74,16 @@ export async function startSession(
   })
 
   sock.ev.on('connection.update', (update) => {
-    console.log(`[whatsapp-qr:debug] connection.update ${configId}:`, JSON.stringify({
-      connection: update.connection,
-      hasQr: Boolean(update.qr),
-      lastDisconnectStatusCode: (update.lastDisconnect?.error as Boom | undefined)?.output
-        ?.statusCode,
-    }))
     void handleConnectionUpdate(configId, accountId, configOwnerUserId, update)
   })
 
-  sock.ev.on('messaging-history.set', (payload) => {
-    console.log(`[whatsapp-qr:debug] messaging-history.set ${configId}:`, JSON.stringify({
-      chatsCount: payload.chats?.length,
-      contactsCount: payload.contacts?.length,
-      messagesCount: payload.messages?.length,
-      isLatest: payload.isLatest,
-      progress: payload.progress,
-      syncType: payload.syncType,
-    }))
-  })
-
   sock.ev.on('messages.upsert', ({ messages, type }) => {
-    console.log(`[whatsapp-qr:debug] messages.upsert ${configId} type=${type} count=${messages.length}`)
-    for (const msg of messages) {
-      console.log('[whatsapp-qr:debug] message:', JSON.stringify({
-        fromMe: msg.key.fromMe,
-        remoteJid: msg.key.remoteJid,
-        id: msg.key.id,
-        hasMessage: Boolean(msg.message),
-        messageKeys: msg.message ? Object.keys(msg.message) : [],
-      }))
-    }
     if (type !== 'notify') return
     for (const msg of messages) {
       handleInboundBaileysMessage(sock, accountId, configOwnerUserId, configId, msg).catch(
         (err) => console.error('[whatsapp-qr] inbound message handling failed:', err),
       )
     }
-  })
-
-  sock.ev.on('messages.update', (updates) => {
-    console.log(`[whatsapp-qr:debug] messages.update ${configId}:`, JSON.stringify(updates.map((u) => ({
-      id: u.key.id,
-      remoteJid: u.key.remoteJid,
-      fromMe: u.key.fromMe,
-      update: u.update,
-    }))))
   })
 }
 
