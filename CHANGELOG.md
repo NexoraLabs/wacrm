@@ -9,6 +9,23 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.19.3] — 2026-07-10
+
+### Fixed
+
+- **Flow interactive-button/list menus (`send_buttons`/`send_list`) were
+  a dead end on QR-connected numbers** — the send silently threw
+  (Baileys has no interactive-tap protocol), so any flow using a button
+  menu as its main navigation (a common pattern) got permanently stuck
+  the moment it reached one, with no error visible to the customer and
+  the run stranded mid-flow. Now renders as a numbered text menu
+  instead ("1. Ver precio\n2. Cómo funciona...") and interprets the
+  customer's reply — either the option number or its title text,
+  case/accent-insensitive — as the equivalent tap.
+  `src/lib/flows/meta-send.ts` (`sendInteractiveAsQrText`,
+  `renderInteractiveAsText`), `src/lib/flows/engine.ts`
+  (`matchTextReplyToMenu`).
+
 ## [0.19.2] — 2026-07-10
 
 ### Fixed

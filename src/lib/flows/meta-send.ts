@@ -358,10 +358,13 @@ async function sendInteractiveViaMeta(
     input.conversationId,
   )
 
+  // Baileys/QR has no real interactive-button-tap protocol — render the
+  // options as a numbered text menu instead and let the engine's
+  // matchTextReplyToMenu() interpret the customer's plain-text reply
+  // (a number or the option's own title) as if they'd tapped it. See
+  // src/lib/flows/engine.ts.
   if (config.provider === 'qr') {
-    throw new Error(
-      'Interactive button/list messages require the official WhatsApp API — this number is connected via QR.',
-    )
+    return sendInteractiveAsQrText(db, config.id, sanitized, input)
   }
 
   const accessToken = decrypt(config.access_token)
@@ -448,4 +451,65 @@ async function sendInteractiveViaMeta(
     .eq('id', input.conversationId)
 
   return { whatsapp_message_id: waMessageId }
+}
+
+/** Numbers options sequentially: buttons top-to-bottom, list rows across all sections. */
+function renderInteractiveAsText(input: SendInput): string {
+  const lines: string[] = []
+  if (input.headerText) lines.push(`*${input.headerText}*`, '')
+  lines.push(input.bodyText, '')
+  if (input.kind === 'buttons') {
+    input.buttons.forEach((b, i) => lines.push(`${i + 1}. ${b.title}`))
+  } else {
+    let n = 1
+    for (const section of input.sections) {
+      if (section.title) lines.push(`_${section.title}_`)
+      for (const row of section.rows) {
+        lines.push(`${n}. ${row.title}${row.description ? ` — ${row.description}` : ''}`)
+        n++
+      }
+    }
+  }
+  if (input.footerText) lines.push('', input.footerText)
+  lines.push('', 'Responde con el número de la opción 👆')
+  return lines.join('\n')
+}
+
+/**
+ * QR-provider counterpart to the Cloud-API interactive send above —
+ * same persistence shape (messages row + conversation preview update),
+ * but as a plain numbered-text menu since Baileys has no interactive
+ * message type to send.
+ */
+async function sendInteractiveAsQrText(
+  db: ReturnType<typeof supabaseAdmin>,
+  configId: string,
+  toPhone: string,
+  input: SendInput,
+): Promise<{ whatsapp_message_id: string }> {
+  const text = renderInteractiveAsText(input)
+  const { messageId } = await sendQrTextMessage({ configId, to: toPhone, text })
+
+  const { error: msgErr } = await db.from('messages').insert({
+    conversation_id: input.conversationId,
+    sender_type: 'bot',
+    content_type: 'text',
+    content_text: text,
+    message_id: messageId,
+    status: 'sent',
+  })
+  if (msgErr) {
+    throw new Error(`sent via QR but DB insert failed: ${msgErr.message}`)
+  }
+
+  await db
+    .from('conversations')
+    .update({
+      last_message_text: text,
+      last_message_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', input.conversationId)
+
+  return { whatsapp_message_id: messageId }
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   matchReplyId,
+  matchTextReplyToMenu,
   matchesKeywordTrigger,
   isAutoAdvancing,
   isSuspending,
@@ -94,6 +95,74 @@ describe("matchReplyId", () => {
         "x",
       ),
     ).toBeNull();
+  });
+});
+
+describe("matchTextReplyToMenu", () => {
+  const buttonsNode = {
+    node_type: "send_buttons",
+    config: {
+      text: "Pick one",
+      buttons: [
+        { reply_id: "a", title: "Ver precio", next_node_key: "price_msg" },
+        { reply_id: "b", title: "Cómo funciona", next_node_key: "audio_msg" },
+        { reply_id: "c", title: "Otra pregunta", next_node_key: "collect_question" },
+      ],
+    },
+  };
+
+  it("matches by 1-indexed position", () => {
+    expect(matchTextReplyToMenu(buttonsNode, "1")).toBe("price_msg");
+    expect(matchTextReplyToMenu(buttonsNode, "2")).toBe("audio_msg");
+    expect(matchTextReplyToMenu(buttonsNode, "3")).toBe("collect_question");
+  });
+
+  it("ignores out-of-range or non-numeric-looking positions, falling through to title match", () => {
+    expect(matchTextReplyToMenu(buttonsNode, "0")).toBeNull();
+    expect(matchTextReplyToMenu(buttonsNode, "4")).toBeNull();
+  });
+
+  it("matches by exact title, case/accent-insensitive", () => {
+    expect(matchTextReplyToMenu(buttonsNode, "ver precio")).toBe("price_msg");
+    expect(matchTextReplyToMenu(buttonsNode, "COMO FUNCIONA")).toBe("audio_msg");
+  });
+
+  it("matches by partial/substring title", () => {
+    expect(matchTextReplyToMenu(buttonsNode, "precio")).toBe("price_msg");
+  });
+
+  it("returns null when nothing matches", () => {
+    expect(matchTextReplyToMenu(buttonsNode, "banana")).toBeNull();
+    expect(matchTextReplyToMenu(buttonsNode, "")).toBeNull();
+    expect(matchTextReplyToMenu(buttonsNode, "   ")).toBeNull();
+  });
+
+  it("returns null for node types with no options", () => {
+    expect(matchTextReplyToMenu({ node_type: "send_message", config: {} }, "1")).toBeNull();
+  });
+
+  it("searches across all sections in a send_list node, numbered continuously", () => {
+    const listNode = {
+      node_type: "send_list",
+      config: {
+        text: "Pick an order",
+        button_label: "View",
+        sections: [
+          { title: "Recent", rows: [{ reply_id: "o1", title: "Order 1", next_node_key: "ord_1" }] },
+          {
+            title: "Older",
+            rows: [
+              { reply_id: "o2", title: "Order 2", next_node_key: "ord_2" },
+              { reply_id: "o3", title: "Order 3", next_node_key: "ord_3" },
+            ],
+          },
+        ],
+      },
+    };
+    expect(matchTextReplyToMenu(listNode, "1")).toBe("ord_1");
+    expect(matchTextReplyToMenu(listNode, "2")).toBe("ord_2");
+    expect(matchTextReplyToMenu(listNode, "3")).toBe("ord_3");
+    expect(matchTextReplyToMenu(listNode, "order 3")).toBe("ord_3");
   });
 });
 

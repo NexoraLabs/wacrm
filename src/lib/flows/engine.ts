@@ -48,6 +48,7 @@ import { retrieveKnowledge } from "@/lib/ai/knowledge";
 import { resolveProductPromptContext } from "@/lib/ai/product-context";
 import { latestUserMessage } from "@/lib/ai/query";
 import { showTypingIndicator } from "@/lib/whatsapp/typing-indicator";
+import { resolveWhatsappConfigForConversation } from "@/lib/whatsapp/resolve-config";
 import { exportOrderRow } from "@/lib/google-sheets/export-order";
 import {
   type AiReplyNodeConfig,
@@ -97,6 +98,64 @@ export function matchReplyId(
     return null;
   }
   return null;
+}
+
+/**
+ * QR-provider counterpart to `matchReplyId`. Baileys has no interactive
+ * tap — `engineSendInteractiveButtons`/`List` (meta-send.ts) render the
+ * options as a numbered text menu instead, so the customer's reply
+ * arrives as plain text. Matches either the option's position number
+ * ("1", "2", ...) or its title text (case/accent-insensitive, exact or
+ * substring), same normalization style as automations' keyword match.
+ */
+export function matchTextReplyToMenu(
+  node: { node_type: string; config: Record<string, unknown> },
+  text: string,
+): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const options: Array<{ title: string; next_node_key: string }> = [];
+  if (node.node_type === "send_buttons") {
+    const cfg = node.config as unknown as SendButtonsNodeConfig;
+    for (const b of cfg.buttons ?? []) {
+      options.push({ title: b.title, next_node_key: b.next_node_key });
+    }
+  } else if (node.node_type === "send_list") {
+    const cfg = node.config as unknown as SendListNodeConfig;
+    for (const section of cfg.sections ?? []) {
+      for (const r of section.rows ?? []) {
+        options.push({ title: r.title, next_node_key: r.next_node_key });
+      }
+    }
+  } else {
+    return null;
+  }
+
+  const asPosition = Number(trimmed);
+  if (
+    Number.isInteger(asPosition) &&
+    asPosition >= 1 &&
+    asPosition <= options.length
+  ) {
+    return options[asPosition - 1].next_node_key;
+  }
+
+  const normalize = (s: string) =>
+    s
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[̀-ͯ]/g, "")
+      .trim();
+  const needle = normalize(trimmed);
+  const exact = options.find((o) => normalize(o.title) === needle);
+  if (exact) return exact.next_node_key;
+  const partial = options.find(
+    (o) =>
+      normalize(o.title).includes(needle) ||
+      needle.includes(normalize(o.title)),
+  );
+  return partial?.next_node_key ?? null;
 }
 
 /**
@@ -1181,6 +1240,26 @@ async function handleReplyForActiveRun(
       currentNode.node_type === "send_list")
   ) {
     matched = matchReplyId(currentNode, message.reply_id);
+  } else if (
+    message.kind === "text" &&
+    (currentNode.node_type === "send_buttons" ||
+      currentNode.node_type === "send_list")
+  ) {
+    // Cloud-API conversations only ever produce a real interactive_reply
+    // for these node types — free text here means the customer typed
+    // instead of tapping, which still falls through to the off-menu AI
+    // answer below like it always has. QR conversations have no tap at
+    // all (see matchTextReplyToMenu's doc comment), so text IS the
+    // reply — but only attempt this on a QR conversation specifically,
+    // resolved fresh rather than trusted from message.kind alone.
+    const config = await resolveWhatsappConfigForConversation(
+      db,
+      run.account_id,
+      run.conversation_id!,
+    ).catch(() => null);
+    if (config?.provider === "qr") {
+      matched = matchTextReplyToMenu(currentNode, message.text);
+    }
   } else if (
     message.kind === "text" &&
     currentNode.node_type === "collect_input"
