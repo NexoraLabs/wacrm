@@ -40,6 +40,18 @@ const DEFAULT_HEADER_ROW = [
   'Cantidad',
 ];
 
+/**
+ * A1-notation ranges require a sheet name to be single-quoted whenever
+ * it contains a space or other special character (embedded quotes
+ * doubled) — e.g. `'Hoja 1'!A:Z`, not `Hoja 1!A:Z`. Google's default
+ * Spanish-locale tab name ("Hoja 1") always has a space, so skipping
+ * this silently broke every range built here and surfaced as a
+ * misleading "Sheet tab not found" error.
+ */
+export function quoteSheetName(name: string): string {
+  return `'${name.replace(/'/g, "''")}'`;
+}
+
 /** Lowercase + strip diacritics, so "Dirección" matches "direccion". */
 function normalizeHeader(text: string): string {
   return text
@@ -126,14 +138,15 @@ export async function exportOrderRow(
 
   const { spreadsheet_id: spreadsheetId, sheet_name: sheetName } = sheetConfig;
   const accessToken = await getAccessTokenForAccount(db, run.account_id);
+  const quotedSheetName = quoteSheetName(sheetName);
 
-  const headerRowRaw = await getSheetValues(accessToken, spreadsheetId, `${sheetName}!1:1`);
+  const headerRowRaw = await getSheetValues(accessToken, spreadsheetId, `${quotedSheetName}!1:1`);
   let headers = (headerRowRaw[0] ?? []).map((h) => normalizeHeader(String(h ?? '')));
 
   if (headers.length === 0) {
     // Empty tab — write a default header the first time a row lands,
     // in the same field order as ORDER_FIELD_ALIASES/DEFAULT_HEADER_ROW.
-    await updateSheetValues(accessToken, spreadsheetId, `${sheetName}!A1`, [DEFAULT_HEADER_ROW]);
+    await updateSheetValues(accessToken, spreadsheetId, `${quotedSheetName}!A1`, [DEFAULT_HEADER_ROW]);
     headers = DEFAULT_HEADER_ROW.map(normalizeHeader);
   }
 
@@ -147,7 +160,7 @@ export async function exportOrderRow(
     if (row[i] === undefined) row[i] = '';
   }
 
-  await appendSheetValues(accessToken, spreadsheetId, `${sheetName}!A:Z`, [row]);
+  await appendSheetValues(accessToken, spreadsheetId, `${quotedSheetName}!A:Z`, [row]);
 
   await db
     .from('product_sheet_configs')

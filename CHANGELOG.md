@@ -9,6 +9,20 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.20.2] — 2026-07-11
+
+### Fixed
+
+- **Google Sheet order export failed for any tab name containing a
+  space** (e.g. "Hoja 1", the default first-tab name on Spanish-locale
+  Google Sheets) — every range built for the Sheets API interpolated
+  the tab name unquoted (`Hoja 1!A:Z`), which Google's API rejects as
+  an unparseable range, surfacing as a misleading "Sheet tab not
+  found" error even when the name was exactly right. Now wraps the
+  tab name in single quotes (A1 notation's required form for names
+  with spaces/special characters) before building any range.
+  `src/lib/google-sheets/export-order.ts` (`quoteSheetName`).
+
 ## [0.20.1] — 2026-07-11
 
 ### Fixed
