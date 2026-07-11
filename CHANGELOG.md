@@ -9,6 +9,21 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.20.1] — 2026-07-11
+
+### Fixed
+
+- **QR/Baileys-connected numbers silently failed to deliver replies to
+  contacts using WhatsApp's "LID" privacy addressing.** Inbound
+  messages from such contacts arrive with `key.remoteJid` as an opaque
+  identifier instead of a real phone number; the CRM stored that
+  identifier as the contact's phone and any reply built from it was
+  accepted by Baileys (looked "sent" in the CRM) but silently dropped
+  by WhatsApp since it didn't resolve to a real account. Now prefers
+  Baileys' `key.remoteJidAlt` (the real phone-number JID) whenever
+  `remoteJid` is a LID. `src/lib/whatsapp-qr/jid.ts`
+  (`resolveInboundPhone`), `src/lib/whatsapp-qr/inbound.ts`.
+
 ## [0.20.0] — 2026-07-11
 
 ### Added

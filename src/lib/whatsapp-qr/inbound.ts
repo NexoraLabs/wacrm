@@ -3,7 +3,7 @@ import pino from 'pino'
 import { supabaseAdmin } from '@/lib/flows/admin-client'
 import { buildMediaPath } from '@/lib/storage/upload-media'
 import { processMessage, type WhatsAppMessage } from '@/app/api/whatsapp/webhook/route'
-import { jidToPhone } from './jid'
+import { resolveInboundPhone } from './jid'
 
 const CHAT_MEDIA_BUCKET = 'chat-media'
 const logger = pino({ level: 'silent' })
@@ -61,7 +61,7 @@ export async function handleInboundBaileysMessage(
   // (many contacts per thread) that this CRM doesn't model.
   if (waMsg.key.remoteJid.endsWith('@g.us')) return
 
-  const fromPhone = jidToPhone(waMsg.key.remoteJid)
+  const fromPhone = resolveInboundPhone(waMsg.key)
   const contactName = waMsg.pushName || fromPhone
   const timestampSeconds =
     typeof waMsg.messageTimestamp === 'number'
