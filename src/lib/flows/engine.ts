@@ -236,6 +236,109 @@ export function evaluateConditionPredicate(args: {
   }
 }
 
+/** One still-unanswered `collect_input` node in a checkout-style chain. */
+export interface PendingCollectInputField {
+  node_key: string;
+  var_key: string;
+  prompt_text: string;
+}
+
+/**
+ * Walks forward from `startNode` through contiguous `collect_input`
+ * nodes (following `next_node_key`), collecting the ones that don't
+ * already have a value in `vars` — i.e. the fields a multi-field reply
+ * starting at `startNode` could plausibly answer in one shot. Stops at
+ * the first non-`collect_input` node (e.g. `export_order`), a node
+ * that already has a value, or a dangling/missing next node. Capped
+ * defensively like the advance loop's own cycle guard.
+ */
+export function collectPendingInputFields(
+  nodes: Map<string, FlowNodeRow>,
+  startNode: FlowNodeRow,
+  vars: Record<string, unknown>,
+): PendingCollectInputField[] {
+  const fields: PendingCollectInputField[] = [];
+  const seen = new Set<string>();
+  let node: FlowNodeRow | null = startNode;
+  for (let i = 0; i < 32 && node; i += 1) {
+    if (node.node_type !== "collect_input" || seen.has(node.node_key)) break;
+    seen.add(node.node_key);
+    const cfg = node.config as unknown as CollectInputNodeConfig;
+    const existing = vars[cfg.var_key];
+    if (typeof existing === "string" && existing.trim().length > 0) break;
+    fields.push({
+      node_key: node.node_key,
+      var_key: cfg.var_key,
+      prompt_text: cfg.prompt_text,
+    });
+    node = cfg.next_node_key ? nodes.get(cfg.next_node_key) ?? null : null;
+  }
+  return fields;
+}
+
+/**
+ * Cheap gate so a normal one-word reply ("1", "Bogotá") never spends
+ * an AI call — only messages that plausibly cram in more than one
+ * answer (long, or visibly itemized) are worth extracting from.
+ */
+export function looksLikeMultiFieldReply(text: string): boolean {
+  const trimmed = text.trim();
+  if (trimmed.length < 15) return false;
+  if (/[,;\n]/.test(trimmed)) return true;
+  return trimmed.split(/\s+/).filter(Boolean).length >= 5;
+}
+
+/** Builds the extraction-only system prompt handed to the model. */
+export function buildFieldExtractionPrompt(
+  fields: PendingCollectInputField[],
+): string {
+  const fieldList = fields
+    .map((f) => `- "${f.var_key}": ${f.prompt_text}`)
+    .join("\n");
+  return [
+    "You extract structured order/shipping data from a single WhatsApp customer message.",
+    "The customer may have answered several of the pending questions below in one message, or only one, or none.",
+    "Pending fields (key: what it asks for):",
+    fieldList,
+    "",
+    "Reply with ONLY a JSON object mapping each key above to the value you found as plain text, or null if that field isn't present in the message. No prose, no markdown code fences — just the raw JSON object.",
+  ].join("\n");
+}
+
+/**
+ * Parses the model's extraction response into a clean partial vars
+ * object. Anything that isn't valid JSON, isn't a plain object, has an
+ * unrecognized key, or isn't a non-empty string value is dropped
+ * rather than guessed at — a bad extraction should fall back to the
+ * normal single-field capture, never write garbage into vars.
+ */
+export function parseFieldExtractionResponse(
+  raw: string,
+  fields: PendingCollectInputField[],
+): Record<string, string> {
+  const validKeys = new Set(fields.map((f) => f.var_key));
+  const cleaned = raw
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```\s*$/, "")
+    .trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    return {};
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!validKeys.has(key) || typeof value !== "string") continue;
+    const trimmedValue = value.trim();
+    if (trimmedValue.length > 0) result[key] = trimmedValue;
+  }
+  return result;
+}
+
 // ============================================================
 // DB I/O — wrapped in tiny helpers so the dispatch flow stays
 // readable. Errors surface as thrown — the entry point catches.
@@ -676,6 +779,47 @@ async function generateAiAnswer(
   return { whatsapp_message_id };
 }
 
+/**
+ * When a customer answers a `collect_input` prompt with what looks
+ * like several pieces of shipping/order info at once (e.g. "1, Calle
+ * 123 #45-67, Bogotá, Cundinamarca, Chapinero" instead of one field
+ * per message), try to split it across the pending fields in this
+ * checkout chain rather than filing the whole blob under the current
+ * field and re-asking for the rest. Best-effort: no AI configured, a
+ * short/plain reply, or any provider failure all just return `{}` —
+ * the caller's existing single-field capture is the safe fallback.
+ */
+async function tryExtractMultipleFields(
+  db: AdminClient,
+  run: FlowRunRow,
+  currentNode: FlowNodeRow,
+  nodes: Map<string, FlowNodeRow>,
+  messageText: string,
+): Promise<Record<string, string>> {
+  const pending = collectPendingInputFields(nodes, currentNode, run.vars);
+  // Only the current field pending (nothing downstream to split into),
+  // or the message doesn't look information-dense — skip the AI call.
+  if (pending.length < 2 || !looksLikeMultiFieldReply(messageText)) return {};
+
+  const aiConfig = await loadAiConfig(db, run.account_id);
+  if (!aiConfig) return {};
+
+  try {
+    const { text } = await generateReply({
+      config: aiConfig,
+      systemPrompt: buildFieldExtractionPrompt(pending),
+      messages: [{ role: "user", content: messageText }],
+    });
+    return parseFieldExtractionResponse(text, pending);
+  } catch (err) {
+    console.error(
+      "[flows] multi-field extraction failed (falling back to single-field capture):",
+      err instanceof Error ? err.message : err,
+    );
+    return {};
+  }
+}
+
 async function advanceFromNodeKey(
   db: AdminClient,
   run: FlowRunRow,
@@ -770,9 +914,17 @@ async function advanceFromNodeKey(
       continue;
     }
     if (node.node_type === "collect_input") {
+      const cfg = node.config as unknown as CollectInputNodeConfig;
+      // Already has a value — most likely the multi-field extractor
+      // (see tryExtractMultipleFields) pulled it out of an earlier
+      // message in this same chain. Don't re-ask, just move on.
+      const existing = run.vars[cfg.var_key];
+      if (typeof existing === "string" && existing.trim().length > 0) {
+        currentKey = cfg.next_node_key;
+        continue;
+      }
       // Send the prompt and suspend. Customer's next TEXT reply will
       // wake us up via handleReplyForActiveRun's collect_input branch.
-      const cfg = node.config as unknown as CollectInputNodeConfig;
       try {
         const { whatsapp_message_id } = await engineSendText({
           accountId: run.account_id,
@@ -1267,8 +1419,24 @@ async function handleReplyForActiveRun(
     const cfg = currentNode.config as unknown as CollectInputNodeConfig;
     const captured = message.text.trim();
     if (captured.length > 0 && cfg.var_key) {
-      // Persist captured value + reset reprompt count atomically.
-      const newVars = { ...run.vars, [cfg.var_key]: captured };
+      // Try splitting the reply across the rest of this checkout
+      // chain first (e.g. quantity + address + city in one message).
+      // Falls back to {} silently for a plain single-field answer.
+      const extracted = await tryExtractMultipleFields(
+        db,
+        run,
+        currentNode,
+        nodes,
+        captured,
+      );
+      const newVars = { ...run.vars, ...extracted };
+      // The current field always gets a value — the extractor's guess
+      // if it found one, otherwise the raw reply, same as before.
+      const currentExtracted = newVars[cfg.var_key];
+      if (!(typeof currentExtracted === "string" && currentExtracted.trim())) {
+        newVars[cfg.var_key] = captured;
+      }
+      // Persist captured value(s) + reset reprompt count atomically.
       const { error: capErr } = await db
         .from("flow_runs")
         .update({
@@ -1285,6 +1453,7 @@ async function handleReplyForActiveRun(
         await logEvent(db, run.id, "node_entered", currentNode.node_key, {
           captured_key: cfg.var_key,
           captured_length: captured.length,
+          extracted_keys: Object.keys(extracted),
         });
         matched = cfg.next_node_key;
       }

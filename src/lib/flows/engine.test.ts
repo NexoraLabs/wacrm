@@ -7,7 +7,13 @@ import {
   isSuspending,
   isTerminal,
   evaluateConditionPredicate,
+  collectPendingInputFields,
+  looksLikeMultiFieldReply,
+  buildFieldExtractionPrompt,
+  parseFieldExtractionResponse,
+  type PendingCollectInputField,
 } from "./engine";
+import type { FlowNodeRow } from "./types";
 
 describe("matchReplyId", () => {
   it("returns null for nodes without options", () => {
@@ -367,5 +373,149 @@ describe("evaluateConditionPredicate", () => {
         configValue: "anything",
       }),
     ).toBe(false);
+  });
+});
+
+describe("collectPendingInputFields", () => {
+  function collectInputNode(
+    key: string,
+    varKey: string,
+    nextKey: string,
+  ): FlowNodeRow {
+    return {
+      id: key,
+      flow_id: "flow-1",
+      node_key: key,
+      node_type: "collect_input",
+      config: { prompt_text: `prompt for ${varKey}`, var_key: varKey, next_node_key: nextKey },
+      position_x: 0,
+      position_y: 0,
+      created_at: "2026-01-01T00:00:00Z",
+    };
+  }
+
+  const quantity = collectInputNode("q", "order_quantity", "addr");
+  const address = collectInputNode("addr", "shipping_address", "city");
+  const city = collectInputNode("city", "shipping_city", "export");
+  const exportNode: FlowNodeRow = {
+    id: "export",
+    flow_id: "flow-1",
+    node_key: "export",
+    node_type: "export_order",
+    config: {},
+    position_x: 0,
+    position_y: 0,
+    created_at: "2026-01-01T00:00:00Z",
+  };
+  const nodes = new Map<string, FlowNodeRow>([
+    ["q", quantity],
+    ["addr", address],
+    ["city", city],
+    ["export", exportNode],
+  ]);
+
+  it("collects every unfilled collect_input node in the chain", () => {
+    const fields = collectPendingInputFields(nodes, quantity, {});
+    expect(fields.map((f) => f.var_key)).toEqual([
+      "order_quantity",
+      "shipping_address",
+      "shipping_city",
+    ]);
+  });
+
+  it("stops at the first non-collect_input node", () => {
+    const fields = collectPendingInputFields(nodes, city, {});
+    expect(fields.map((f) => f.var_key)).toEqual(["shipping_city"]);
+  });
+
+  it("stops at the first field that already has a value", () => {
+    const fields = collectPendingInputFields(nodes, quantity, {
+      shipping_address: "Calle 123",
+    });
+    expect(fields.map((f) => f.var_key)).toEqual(["order_quantity"]);
+  });
+
+  it("returns nothing when the starting field is already filled", () => {
+    const fields = collectPendingInputFields(nodes, quantity, {
+      order_quantity: "1",
+    });
+    expect(fields).toEqual([]);
+  });
+});
+
+describe("looksLikeMultiFieldReply", () => {
+  it("rejects short one-word answers", () => {
+    expect(looksLikeMultiFieldReply("1")).toBe(false);
+    expect(looksLikeMultiFieldReply("Bogotá")).toBe(false);
+  });
+
+  it("rejects long single-token strings with no separators", () => {
+    expect(looksLikeMultiFieldReply("aaaaaaaaaaaaaaaaaaaaaaaaaaaa")).toBe(false);
+  });
+
+  it("accepts a long comma-separated reply", () => {
+    expect(
+      looksLikeMultiFieldReply("1, Calle 123 #45-67, Bogotá, Cundinamarca, Chapinero"),
+    ).toBe(true);
+  });
+
+  it("accepts a long reply with several words even without punctuation", () => {
+    expect(
+      looksLikeMultiFieldReply("quiero uno para la calle 123 en bogota chapinero"),
+    ).toBe(true);
+  });
+});
+
+describe("buildFieldExtractionPrompt", () => {
+  const fields: PendingCollectInputField[] = [
+    { node_key: "q", var_key: "order_quantity", prompt_text: "¿Cuántas unidades?" },
+    { node_key: "addr", var_key: "shipping_address", prompt_text: "¿Tu dirección?" },
+  ];
+
+  it("mentions every field's key and prompt text", () => {
+    const prompt = buildFieldExtractionPrompt(fields);
+    expect(prompt).toContain("order_quantity");
+    expect(prompt).toContain("¿Cuántas unidades?");
+    expect(prompt).toContain("shipping_address");
+    expect(prompt).toContain("¿Tu dirección?");
+    expect(prompt).toContain("JSON");
+  });
+});
+
+describe("parseFieldExtractionResponse", () => {
+  const fields: PendingCollectInputField[] = [
+    { node_key: "q", var_key: "order_quantity", prompt_text: "qty" },
+    { node_key: "addr", var_key: "shipping_address", prompt_text: "addr" },
+  ];
+
+  it("parses a clean JSON object", () => {
+    const raw = '{"order_quantity": "1", "shipping_address": "Calle 123"}';
+    expect(parseFieldExtractionResponse(raw, fields)).toEqual({
+      order_quantity: "1",
+      shipping_address: "Calle 123",
+    });
+  });
+
+  it("strips a markdown code fence around the JSON", () => {
+    const raw = '```json\n{"order_quantity": "2"}\n```';
+    expect(parseFieldExtractionResponse(raw, fields)).toEqual({ order_quantity: "2" });
+  });
+
+  it("drops unknown keys, null values, and empty strings", () => {
+    const raw = JSON.stringify({
+      order_quantity: "1",
+      shipping_address: null,
+      some_unknown_field: "x",
+      extra: "",
+    });
+    expect(parseFieldExtractionResponse(raw, fields)).toEqual({ order_quantity: "1" });
+  });
+
+  it("returns {} for invalid JSON", () => {
+    expect(parseFieldExtractionResponse("not json at all", fields)).toEqual({});
+  });
+
+  it("returns {} for a JSON array instead of an object", () => {
+    expect(parseFieldExtractionResponse('["1", "Calle 123"]', fields)).toEqual({});
   });
 });
