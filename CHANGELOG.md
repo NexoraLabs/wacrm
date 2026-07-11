@@ -9,6 +9,21 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.20.0] — 2026-07-11
+
+### Added
+
+- **Checkout flows now understand a customer answering several
+  `collect_input` questions in one message** (e.g. "1 unidad, Calle 123
+  #45-67, Bogotá, Cundinamarca, Chapinero" instead of one field per
+  reply). A long or itemized-looking reply is run through the
+  account's configured AI to split it across the pending fields in the
+  chain, filling as many as it can and skipping their prompts on the
+  way through — a customer answering field-by-field, or with no AI
+  configured, sees the exact same behavior as before.
+  `src/lib/flows/engine.ts` (`collectPendingInputFields`,
+  `looksLikeMultiFieldReply`, `tryExtractMultipleFields`).
+
 ## [0.19.3] — 2026-07-10
 
 ### Fixed
