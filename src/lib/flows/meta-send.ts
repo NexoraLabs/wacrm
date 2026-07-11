@@ -1,3 +1,8 @@
+// Cache-bust marker (2026-07-11): a prior "successful" deploy of the
+// QR-menu-as-text fix below kept serving pre-fix behavior at runtime
+// despite a real ~3min build being logged. Forcing a fresh commit here
+// to rule out a stale-image/container-swap issue on the host side —
+// see [[production_deploy_stuck]] memory if this recurs.
 import {
   sendInteractiveButtons,
   sendInteractiveList,
