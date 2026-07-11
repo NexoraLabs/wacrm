@@ -9,6 +9,18 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.19.2] — 2026-07-10
+
+### Fixed
+
+- **A connected QR-linked WhatsApp card polled and re-rendered forever**,
+  flashing the whole Settings → WhatsApp list every ~2s. Detecting
+  "connected" called `onSaved()` unconditionally, which flips the
+  parent's loading state and unmounts/remounts every card — including
+  itself — re-triggering the same detection on every remount. Now
+  guarded to notify once and skip polling entirely for an
+  already-connected card — `src/components/settings/whatsapp-config.tsx`.
+
 ## [0.19.1] — 2026-07-10
 
 **Migration required:** `supabase/migrations/048_flow_nodes_export_order_type.sql`

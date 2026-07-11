@@ -803,6 +803,12 @@ function QrNumberCard({
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [linkedPhone, setLinkedPhone] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Guards against a remount loop: onSaved() (fetchConfigs) flips the
+  // parent's `loading` flag, which unmounts/remounts every card in the
+  // list — including this one. Without this guard, an already-connected
+  // card would re-detect "connected" on every remount and call onSaved()
+  // again, causing the whole list to flash/reload forever.
+  const notifiedConnectedRef = useRef(false);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) {
@@ -822,8 +828,11 @@ function QrNumberCard({
         setLinkedPhone(data.linked_phone_number ?? null);
         if (data.status === 'connected') {
           stopPolling();
-          toast.success('WhatsApp connected via QR');
-          onSaved();
+          if (!notifiedConnectedRef.current) {
+            notifiedConnectedRef.current = true;
+            toast.success('WhatsApp connected via QR');
+            onSaved();
+          }
         }
       } catch (err) {
         console.error('qr status poll error:', err);
@@ -834,6 +843,9 @@ function QrNumberCard({
 
   useEffect(() => {
     if (!configId) return;
+    // Already connected (a saved card, not a fresh pairing) — nothing to
+    // poll for until the user explicitly disconnects/reconnects.
+    if (config?.status === 'connected') return;
     void poll(configId);
     pollRef.current = setInterval(() => void poll(configId), 2000);
     return stopPolling;
