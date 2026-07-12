@@ -52,6 +52,27 @@ export function quoteSheetName(name: string): string {
   return `'${name.replace(/'/g, "''")}'`;
 }
 
+/**
+ * Every merchant on this feature so far operates in Colombia — format
+ * the order timestamp in local time (not raw UTC ISO) so "Fecha" reads
+ * naturally in the sheet instead of a `Z`-suffixed UTC instant a
+ * non-technical merchant has to mentally shift by 5 hours.
+ */
+function formatBogotaTimestamp(date: Date): string {
+  const parts = new Intl.DateTimeFormat('es-CO', {
+    timeZone: 'America/Bogota',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('day')}/${get('month')}/${get('year')} ${get('hour')}:${get('minute')}:${get('second')}`;
+}
+
 /** Lowercase + strip diacritics, so "Dirección" matches "direccion". */
 function normalizeHeader(text: string): string {
   return text
@@ -125,7 +146,7 @@ export async function exportOrderRow(
   };
 
   const values: Record<OrderField, string> = {
-    timestamp: new Date().toISOString(),
+    timestamp: formatBogotaTimestamp(new Date()),
     name: contact?.name ?? '',
     phone: contact?.phone ?? '',
     address: readVar(cfg.address_var_key),

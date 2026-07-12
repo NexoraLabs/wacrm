@@ -9,6 +9,16 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.20.5] — 2026-07-12
+
+### Fixed
+
+- Order export's "Fecha" column wrote a raw UTC ISO timestamp
+  (`2026-07-12T01:49:24.661Z`) instead of a merchant-readable local
+  time. `exportOrderRow` now formats it in Colombia time
+  (`America/Bogota`), matching every merchant currently on this
+  feature.
+
 ## [0.20.4] — 2026-07-12
 
 ### Fixed
