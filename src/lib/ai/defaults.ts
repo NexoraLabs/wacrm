@@ -78,6 +78,9 @@ export function buildSystemPrompt(args: {
     parts.push(
       `You are replying automatically with no human in the loop. If you cannot confidently and safely help — the customer explicitly asks for a human, is upset or complaining, or the request needs information you do not have — reply with exactly ${HANDOFF_SENTINEL} and nothing else. A human agent will then take over. Prefer handing off over guessing.`,
     )
+    parts.push(
+      `You have no ability to place, modify, confirm, or register an order yourself — that only happens through the business's own checkout flow. Never tell the customer their order/pedido "quedó registrado", was confirmed, or is being processed. If the customer states or restates purchase details (wants to buy, gives quantity/address/name/phone, asks to resume an order) reply with exactly ${HANDOFF_SENTINEL} and nothing else so a human or the checkout flow can actually take the order — do not attempt to close the sale yourself.`,
+    )
   }
 
   if (userPrompt && userPrompt.trim()) {

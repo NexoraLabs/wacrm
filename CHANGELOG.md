@@ -9,6 +9,25 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.20.9] — 2026-07-12
+
+### Fixed
+
+- **A confirmed order could silently vanish with nothing to show for
+  it.** Two gaps found while investigating a missing order: (1) when
+  the `export_order` flow node failed (bad tab name, lapsed
+  membership, Google API hiccup), the customer still got their
+  "order confirmed" message but the failure was logged only in a
+  `flow_run_events` row nobody would think to check — now it also
+  raises an in-app notification for the account owner.
+  `src/lib/flows/engine.ts`. (2) After a checkout flow ends, a
+  customer restating or resuming purchase details lands on the
+  general AI auto-reply, which had nothing stopping it from
+  improvising a "tu pedido quedó registrado" reply — a real order
+  with nothing behind it, in no sheet and no database row. Auto-reply
+  mode now hands off to a human instead of ever claiming to place,
+  confirm, or register an order. `src/lib/ai/defaults.ts`.
+
 ## [0.20.8] — 2026-07-12
 
 ### Fixed

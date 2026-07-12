@@ -1138,11 +1138,32 @@ async function advanceFromNodeKey(
       } catch (err) {
         // Non-fatal — log + advance. A missing sheet connection, a
         // lapsed membership, or a Google API hiccup shouldn't strand
-        // the customer mid-flow.
+        // the customer mid-flow. The customer still gets their order
+        // confirmed downstream, so the owner needs an explicit alert —
+        // otherwise a real, paid order can vanish with nothing but a
+        // buried flow_run_events row to show for it.
+        const detail = err instanceof Error ? err.message : String(err);
         await logEvent(db, run.id, "error", node.node_key, {
           reason: "export_order_failed",
-          detail: err instanceof Error ? err.message : String(err),
+          detail,
         });
+        try {
+          await db.from("notifications").insert({
+            account_id: run.account_id,
+            user_id: run.user_id,
+            type: "automation_alert",
+            conversation_id: run.conversation_id,
+            contact_id: run.contact_id,
+            actor_user_id: null,
+            title: "⚠️ Un pedido no se pudo registrar en Google Sheets",
+            body: `El bot confirmó el pedido al cliente, pero la exportación a la hoja falló: ${detail}. Revisa este pedido manualmente.`,
+          });
+        } catch (notifyErr) {
+          console.error(
+            "[flows] failed to notify owner of export_order_failed:",
+            notifyErr,
+          );
+        }
       }
       currentKey = cfg.next_node_key;
       continue;
