@@ -9,6 +9,21 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.20.7] — 2026-07-12
+
+### Fixed
+
+- **A customer asking a question mid-checkout (e.g. "¿cuánto tarda el
+  envío?" while the flow is asking for their address) got that
+  question saved verbatim as the field's value** — `collect_input`
+  captured any non-empty text unconditionally, with no check for
+  whether it was actually an answer. `handleReplyForActiveRun` now
+  runs a cheap heuristic (`looksLikeAQuestion`: a "?" or a leading
+  interrogative word) before capturing; a match gets an AI answer
+  instead, reminding the customer what's still needed, without
+  touching the field's value or advancing — the same prompt fires
+  again on their next reply. `src/lib/flows/engine.ts`.
+
 ## [0.20.6] — 2026-07-12
 
 ### Fixed

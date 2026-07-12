@@ -9,6 +9,7 @@ import {
   evaluateConditionPredicate,
   collectPendingInputFields,
   looksLikeMultiFieldReply,
+  looksLikeAQuestion,
   buildFieldExtractionPrompt,
   parseFieldExtractionResponse,
   type PendingCollectInputField,
@@ -463,6 +464,30 @@ describe("looksLikeMultiFieldReply", () => {
     expect(
       looksLikeMultiFieldReply("quiero uno para la calle 123 en bogota chapinero"),
     ).toBe(true);
+  });
+});
+
+describe("looksLikeAQuestion", () => {
+  it("rejects plain field answers", () => {
+    expect(looksLikeAQuestion("1")).toBe(false);
+    expect(looksLikeAQuestion("Bogotá")).toBe(false);
+    expect(looksLikeAQuestion("CRA 17 # 6-25")).toBe(false);
+    expect(looksLikeAQuestion("La esmeralda")).toBe(false);
+  });
+
+  it("accepts anything with a question mark", () => {
+    expect(looksLikeAQuestion("¿cuánto tarda el envío?")).toBe(true);
+    expect(looksLikeAQuestion("es gratis el envio?")).toBe(true);
+  });
+
+  it("accepts common interrogative openers even without a question mark", () => {
+    expect(looksLikeAQuestion("cuanto cuesta el envio")).toBe(true);
+    expect(looksLikeAQuestion("como funciona la garantia")).toBe(true);
+    expect(looksLikeAQuestion("donde queda la tienda")).toBe(true);
+  });
+
+  it("rejects empty input", () => {
+    expect(looksLikeAQuestion("   ")).toBe(false);
   });
 });
 

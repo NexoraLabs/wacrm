@@ -288,6 +288,26 @@ export function looksLikeMultiFieldReply(text: string): boolean {
   return trimmed.split(/\s+/).filter(Boolean).length >= 5;
 }
 
+/**
+ * Cheap heuristic: does this read like a question rather than an
+ * answer to whatever `collect_input` field is currently being asked?
+ * Without this, a reply like "¿cuánto tarda el envío?" gets captured
+ * verbatim as the field's value (e.g. saved as the shipping address)
+ * instead of being answered — the capture branch otherwise accepts
+ * any non-empty text unconditionally. False positives just cost one
+ * AI call and a repeated prompt, so this errs toward over-triggering
+ * rather than risking corrupted order data.
+ */
+const QUESTION_STARTERS =
+  /^(qu[eé]|c[oó]mo|cu[aá]l|cu[aá]les|cu[aá]ndo|cu[aá]nto|cu[aá]nta|cu[aá]ntos|cu[aá]ntas|d[oó]nde|por qu[eé])\b/i;
+
+export function looksLikeAQuestion(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (trimmed.includes("?")) return true;
+  return QUESTION_STARTERS.test(trimmed);
+}
+
 /** Builds the extraction-only system prompt handed to the model. */
 export function buildFieldExtractionPrompt(
   fields: PendingCollectInputField[],
@@ -1532,6 +1552,40 @@ async function handleReplyForActiveRun(
   ) {
     const cfg = currentNode.config as unknown as CollectInputNodeConfig;
     const captured = message.text.trim();
+    if (captured.length > 0 && looksLikeAQuestion(captured)) {
+      let aiResult: { whatsapp_message_id: string } | null = null;
+      try {
+        aiResult = await generateAiAnswer(
+          db,
+          run,
+          message.meta_message_id,
+          "El cliente está a mitad de dar sus datos de envío y en vez de " +
+            "responder hizo una pregunta. Respóndela breve (máximo 3 " +
+            "líneas) usando el contexto del producto y el historial, y " +
+            "termina recordándole que todavía necesitas esto: " +
+            `"${cfg.prompt_text}"`,
+        );
+      } catch (err) {
+        await logEvent(db, run.id, "error", currentNode.node_key, {
+          reason: "question_during_collect_input_answer_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+      if (aiResult) {
+        await logEvent(db, run.id, "message_sent", currentNode.node_key, {
+          node_type: "off_menu_ai_answer",
+          whatsapp_message_id: aiResult.whatsapp_message_id,
+        });
+        return {
+          consumed: true,
+          flow_run_id: run.id,
+          outcome: "off_menu_answered",
+        };
+      }
+      // AI answer failed (no assistant configured, etc.) — fall through
+      // to the normal capture below rather than leaving the customer
+      // with no reply at all.
+    }
     if (captured.length > 0 && cfg.var_key) {
       // Try splitting the reply across the rest of this checkout
       // chain first (e.g. quantity + address + city in one message).
