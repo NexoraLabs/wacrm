@@ -521,6 +521,37 @@ async function findEntryFlow(
   return null;
 }
 
+/**
+ * Like `findEntryFlow`'s keyword branch, but callable while a DIFFERENT
+ * flow's run is already active for the contact — used by
+ * `handleReplyForActiveRun` so a customer who never taps a button (just
+ * free-types "quiero pedirlo" etc.) can still reach a keyword-triggered
+ * flow. Without this, their run would sit at its current node forever
+ * (only interactive taps advance send_buttons/send_list nodes) and
+ * `findEntryFlow` would never run for them, since it's only checked
+ * when there's NO active run.
+ */
+async function findActiveKeywordFlow(
+  db: AdminClient,
+  accountId: string,
+  text: string,
+): Promise<FlowRow | null> {
+  const { data: flows, error } = await db
+    .from("flows")
+    .select("*")
+    .eq("account_id", accountId)
+    .eq("status", "active")
+    .eq("trigger_type", "keyword")
+    .order("created_at", { ascending: true });
+  if (error || !flows) return null;
+  for (const flow of flows as FlowRow[]) {
+    if (matchesKeywordTrigger(text, flow.trigger_config as KeywordTriggerConfig)) {
+      return flow;
+    }
+  }
+  return null;
+}
+
 // ============================================================
 // Node executors — each handles ONE node type. send_buttons and
 // send_list also persist `last_prompt_message_id` so the inbox
@@ -1588,6 +1619,34 @@ async function handleReplyForActiveRun(
   // silence: none of the reprompt branches below know how to handle an
   // unexpected node type, so nothing got sent at all.
   if (message.kind === "text" && currentNode.node_type !== "collect_input") {
+    // Before answering with AI, check whether the free text is actually
+    // the trigger phrase for a different keyword-triggered flow (e.g.
+    // "quiero pedirlo" for a checkout flow) — a customer who only ever
+    // types instead of tapping buttons would otherwise never leave this
+    // run, so that flow could never start for them. Ending this run and
+    // handing off to the matched flow beats an AI answer that ignores
+    // the customer's actual intent.
+    const keywordFlow = await findActiveKeywordFlow(
+      db,
+      run.account_id,
+      message.text,
+    );
+    if (keywordFlow?.entry_node_id) {
+      await endRun(db, run.id, "completed", "superseded_by_keyword_trigger");
+      const newFlowNodes = await loadAllNodes(db, keywordFlow.id);
+      return await startNewRun(
+        db,
+        keywordFlow,
+        {
+          accountId: run.account_id,
+          userId: run.user_id,
+          contactId: run.contact_id!,
+          conversationId: run.conversation_id!,
+          message,
+        },
+        newFlowNodes,
+      );
+    }
     let aiResult: { whatsapp_message_id: string } | null = null;
     try {
       aiResult = await generateAiAnswer(

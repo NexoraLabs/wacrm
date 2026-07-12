@@ -9,6 +9,28 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.20.6] — 2026-07-12
+
+### Fixed
+
+- **A `send_message` node with its `next_node_key` wired straight into a
+  `collect_input` chain fires that chain unconditionally the instant the
+  message sends** — `send_message` doesn't wait for a reply, so any flow
+  built this way skips the confirmation step entirely. (Fixed for the
+  Limpiavidrios account specifically by rewiring that flow's data, not a
+  code change — noted here because it's a generic footgun other flows
+  built the same way would hit too.)
+- **A customer who only ever free-types instead of tapping menu buttons
+  could never reach a keyword-triggered flow.** `findEntryFlow` (the
+  keyword-match lookup) only runs when a contact has no active flow run —
+  but only interactive taps advance `send_buttons`/`send_list` nodes, so
+  a text-only customer's run never ends and sits at the same node
+  forever. `handleReplyForActiveRun` now checks free text against every
+  active keyword-triggered flow before falling back to an AI answer; a
+  match ends the current run and starts the matched flow instead of
+  answering the trigger phrase as if it were a stray question.
+  `src/lib/flows/engine.ts` (`findActiveKeywordFlow`).
+
 ## [0.20.5] — 2026-07-12
 
 ### Fixed
