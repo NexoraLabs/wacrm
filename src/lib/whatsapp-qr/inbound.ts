@@ -40,6 +40,23 @@ function extensionFor(mimeType: string): string {
   return sub || 'bin'
 }
 
+const NON_CONTENT_KEYS = new Set(['messageContextInfo', 'senderKeyDistributionMessage'])
+
+/**
+ * True for Baileys 'notify' upserts that carry protocol/session
+ * housekeeping only (Signal key distribution, ephemeral/delete protocol
+ * markers, message-context sidecars) with no actual user content — as
+ * opposed to a real message type this app just doesn't render yet
+ * (sticker, poll, contact card), which should still fall through to
+ * the 'unsupported' branch and get a fallback reply.
+ */
+function isNonContentProtocolMessage(content: WAMessage['message']): boolean {
+  if (!content) return true
+  if (content.protocolMessage) return true
+  const keys = Object.keys(content).filter((k) => !NON_CONTENT_KEYS.has(k))
+  return keys.length === 0
+}
+
 /**
  * Convert one Baileys WAMessage into the same `WhatsAppMessage` shape
  * the Meta webhook builds, downloading + re-hosting any media first,
@@ -60,6 +77,14 @@ export async function handleInboundBaileysMessage(
   // Only 1:1 chats — group messages have a different tenancy story
   // (many contacts per thread) that this CRM doesn't model.
   if (waMsg.key.remoteJid.endsWith('@g.us')) return
+  // Protocol/session-housekeeping events (key distribution for the
+  // Signal ratchet, message-context sidecars, deletions/ephemeral
+  // toggles) ride through the same 'notify' upsert as real messages but
+  // carry no user content. Previously these fell through to the
+  // 'unsupported' branch below and got processed as a real customer
+  // reply — silently consuming a flow's collect_input step with the
+  // literal placeholder text, shifting every field after it by one.
+  if (isNonContentProtocolMessage(waMsg.message)) return
 
   const fromPhone = resolveInboundPhone(waMsg.key)
   const contactName = waMsg.pushName || fromPhone

@@ -9,6 +9,21 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.20.4] — 2026-07-12
+
+### Fixed
+
+- **QR-connected (Baileys) numbers could silently corrupt an in-progress
+  Flow checkout.** WhatsApp protocol/session-housekeeping events (Signal
+  key distribution, message-context sidecars) ride through the same
+  inbound event as real messages but carry no user content; these were
+  falling through to the "unsupported message type" branch and getting
+  processed as a genuine customer reply, consuming a `collect_input`
+  step with placeholder text and shifting every field after it by one
+  (e.g. quantity landing in the address field). `src/lib/whatsapp-qr/inbound.ts`
+  now recognizes and silently ignores these non-content events instead
+  of treating them as a reply.
+
 ## [0.20.3] — 2026-07-11
 
 ### Fixed
