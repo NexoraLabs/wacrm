@@ -289,14 +289,16 @@ export function looksLikeMultiFieldReply(text: string): boolean {
 }
 
 /**
- * Cheap heuristic: does this read like a question rather than an
+ * Free fast-path: does this read like a question rather than an
  * answer to whatever `collect_input` field is currently being asked?
  * Without this, a reply like "¿cuánto tarda el envío?" gets captured
  * verbatim as the field's value (e.g. saved as the shipping address)
  * instead of being answered — the capture branch otherwise accepts
- * any non-empty text unconditionally. False positives just cost one
- * AI call and a repeated prompt, so this errs toward over-triggering
- * rather than risking corrupted order data.
+ * any non-empty text unconditionally. Only covers the formal case (a
+ * "?" or a leading interrogative word) — colloquial phrasing without
+ * either ("Y el envío es gratis o lo cobran") slips through this and
+ * is caught downstream by `classifyCollectInputReply` instead, since
+ * a regex can't reasonably cover every way of asking something.
  */
 const QUESTION_STARTERS =
   /^(qu[eé]|c[oó]mo|cu[aá]l|cu[aá]les|cu[aá]ndo|cu[aá]nto|cu[aá]nta|cu[aá]ntos|cu[aá]ntas|d[oó]nde|por qu[eé])\b/i;
@@ -306,6 +308,16 @@ export function looksLikeAQuestion(text: string): boolean {
   if (!trimmed) return false;
   if (trimmed.includes("?")) return true;
   return QUESTION_STARTERS.test(trimmed);
+}
+
+/**
+ * Cheap gate for `classifyCollectInputReply` — a one-or-two-word reply
+ * ("1", "Bogotá", "La esmeralda") is never worth an AI round trip, it's
+ * always a plain field value. Only longer, sentence-like replies (the
+ * ones `looksLikeAQuestion` can't reliably parse) get classified.
+ */
+export function looksWorthClassifying(text: string): boolean {
+  return text.trim().split(/\s+/).filter(Boolean).length >= 3;
 }
 
 /** Builds the extraction-only system prompt handed to the model. */
@@ -868,6 +880,54 @@ async function tryExtractMultipleFields(
       err instanceof Error ? err.message : err,
     );
     return {};
+  }
+}
+
+/**
+ * AI classification for the cases `looksLikeAQuestion`'s regex can't
+ * catch — colloquial phrasing with no "?" and no interrogative opener
+ * ("Y el envío es gratis o lo cobran"). Asks the model whether the
+ * reply actually answers the field's prompt or is something else
+ * entirely. Defaults to `true` (treat as a real answer, same as
+ * pre-fix behavior) whenever there's no AI configured or the call/
+ * parse fails — a missed classification should never block a
+ * legitimate answer from being captured.
+ */
+async function classifyCollectInputReply(
+  db: AdminClient,
+  accountId: string,
+  promptText: string,
+  messageText: string,
+): Promise<boolean> {
+  const aiConfig = await loadAiConfig(db, accountId);
+  if (!aiConfig) return true;
+
+  try {
+    const { text } = await generateReply({
+      config: aiConfig,
+      systemPrompt:
+        "You classify a single WhatsApp reply sent during a checkout " +
+        `flow. The customer was just asked: "${promptText}". Decide ` +
+        "whether their reply actually answers that (a piece of data — " +
+        "a quantity, an address, a place name, etc.) or is something " +
+        "else entirely (a question of their own, a comment, small " +
+        'talk). Reply with ONLY a JSON object: {"is_answer": true} or ' +
+        '{"is_answer": false}. No prose, no markdown code fences.',
+      messages: [{ role: "user", content: messageText }],
+    });
+    const cleaned = text
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/, "")
+      .trim();
+    const parsed = JSON.parse(cleaned) as { is_answer?: unknown };
+    return typeof parsed.is_answer === "boolean" ? parsed.is_answer : true;
+  } catch (err) {
+    console.error(
+      "[flows] collect_input reply classification failed (defaulting to 'is an answer'):",
+      err instanceof Error ? err.message : err,
+    );
+    return true;
   }
 }
 
@@ -1552,7 +1612,21 @@ async function handleReplyForActiveRun(
   ) {
     const cfg = currentNode.config as unknown as CollectInputNodeConfig;
     const captured = message.text.trim();
-    if (captured.length > 0 && looksLikeAQuestion(captured)) {
+    // Free fast-path first (a "?" or a formal interrogative opener);
+    // only spend an AI call on the ambiguous middle ground — colloquial
+    // phrasing the regex can't parse, but too long to be a trustworthy
+    // one-or-two-word field value either.
+    const isOffTopic =
+      captured.length > 0 &&
+      (looksLikeAQuestion(captured) ||
+        (looksWorthClassifying(captured) &&
+          !(await classifyCollectInputReply(
+            db,
+            run.account_id,
+            cfg.prompt_text,
+            captured,
+          ))));
+    if (isOffTopic) {
       let aiResult: { whatsapp_message_id: string } | null = null;
       try {
         aiResult = await generateAiAnswer(

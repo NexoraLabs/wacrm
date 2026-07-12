@@ -9,6 +9,21 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.20.8] — 2026-07-12
+
+### Fixed
+
+- **Colloquial questions with no "?" and no formal interrogative
+  opener** (e.g. "Y el envío es gratis o lo cobran") still got
+  captured verbatim as a `collect_input` field's value — the regex
+  heuristic from the previous fix only catches formally-phrased
+  questions. Longer replies (3+ words) that the regex doesn't flag now
+  also get a cheap AI classification (`classifyCollectInputReply`):
+  does this actually answer the field being asked, or is it something
+  else? A "no" gets an AI answer instead of being captured, same as
+  before; a one-or-two-word reply never spends the AI call, since it's
+  always a real field value. `src/lib/flows/engine.ts`.
+
 ## [0.20.7] — 2026-07-12
 
 ### Fixed

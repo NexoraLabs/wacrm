@@ -10,6 +10,7 @@ import {
   collectPendingInputFields,
   looksLikeMultiFieldReply,
   looksLikeAQuestion,
+  looksWorthClassifying,
   buildFieldExtractionPrompt,
   parseFieldExtractionResponse,
   type PendingCollectInputField,
@@ -488,6 +489,18 @@ describe("looksLikeAQuestion", () => {
 
   it("rejects empty input", () => {
     expect(looksLikeAQuestion("   ")).toBe(false);
+  });
+});
+
+describe("looksWorthClassifying", () => {
+  it("rejects one- and two-word replies", () => {
+    expect(looksWorthClassifying("1")).toBe(false);
+    expect(looksWorthClassifying("La esmeralda")).toBe(false);
+  });
+
+  it("accepts replies with three or more words", () => {
+    expect(looksWorthClassifying("Y el envío es gratis o lo cobran")).toBe(true);
+    expect(looksWorthClassifying("cuanto cuesta el envio")).toBe(true);
   });
 });
 
