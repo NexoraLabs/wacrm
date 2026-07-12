@@ -1155,6 +1155,63 @@ async function advanceCurrentNodeKey(
   return Array.isArray(data) && data.length > 0;
 }
 
+// A crashed request could leave a run locked forever — treat a claim
+// older than this as abandoned and safe to steal.
+const RUN_LOCK_STALE_MS = 30_000;
+// How long a second, concurrent reply waits for the first to finish
+// before giving up — covers a customer double-tapping two different
+// buttons a second or two apart.
+const RUN_LOCK_MAX_WAIT_MS = 8_000;
+const RUN_LOCK_POLL_MS = 400;
+
+/**
+ * Claims exclusive processing rights for one flow run via the same
+ * conditional-UPDATE idiom as `advanceCurrentNodeKey` — succeeds only
+ * if nobody else currently holds the lock (or the last claim is stale).
+ */
+async function tryClaimRun(db: AdminClient, runId: string): Promise<boolean> {
+  const staleThreshold = new Date(Date.now() - RUN_LOCK_STALE_MS).toISOString();
+  const { data, error } = await db
+    .from("flow_runs")
+    .update({ locked_at: new Date().toISOString() })
+    .eq("id", runId)
+    .or(`locked_at.is.null,locked_at.lt.${staleThreshold}`)
+    .select("id");
+  if (error) {
+    console.error("[flows] tryClaimRun error:", error.message);
+    return false;
+  }
+  return Array.isArray(data) && data.length > 0;
+}
+
+async function releaseRunLock(db: AdminClient, runId: string): Promise<void> {
+  const { error } = await db
+    .from("flow_runs")
+    .update({ locked_at: null })
+    .eq("id", runId);
+  if (error) console.error("[flows] releaseRunLock error:", error.message);
+}
+
+/**
+ * Two customer replies landing within a second or two of each other
+ * (e.g. a double-tap on two different interactive buttons) used to
+ * both advance the same run concurrently — each sending its own
+ * messages before either committed, only caught (too late, after
+ * already sending duplicates) by `advanceCurrentNodeKey`'s optimistic
+ * check. Polling for this run's lock instead serializes the two: the
+ * second reply waits for the first to fully finish and release, then
+ * the caller re-reads the run fresh so it sees wherever the first
+ * reply actually left it, rather than racing from stale state.
+ */
+async function claimRunWithWait(db: AdminClient, runId: string): Promise<boolean> {
+  const deadline = Date.now() + RUN_LOCK_MAX_WAIT_MS;
+  for (;;) {
+    if (await tryClaimRun(db, runId)) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, RUN_LOCK_POLL_MS));
+  }
+}
+
 // ============================================================
 // Public entry point — the webhook calls this on every inbound.
 // ============================================================
@@ -1187,10 +1244,36 @@ export async function dispatchInboundToFlows(
           outcome: "duplicate_inbound_ignored",
         };
       }
-      // One SELECT for the whole flow's nodes — advance loop is now
-      // in-memory. See loadAllNodes.
-      const nodes = await loadAllNodes(db, activeRun.flow_id);
-      return handleReplyForActiveRun(db, activeRun, input.message, nodes);
+
+      const claimed = await claimRunWithWait(db, activeRun.id);
+      if (!claimed) {
+        await logEvent(db, activeRun.id, "error", activeRun.current_node_key ?? "start", {
+          reason: "run_busy_reply_skipped",
+        });
+        return {
+          consumed: true,
+          flow_run_id: activeRun.id,
+          outcome: "run_busy_skipped",
+        };
+      }
+      try {
+        // Re-read fresh — the run may have advanced while this reply
+        // waited for the lock (e.g. a prior reply that raced in first).
+        const freshRun = await loadActiveRunForContact(
+          db,
+          input.accountId,
+          input.contactId,
+        );
+        if (!freshRun) {
+          return { consumed: true, flow_run_id: activeRun.id, outcome: "no_match" };
+        }
+        // One SELECT for the whole flow's nodes — advance loop is now
+        // in-memory. See loadAllNodes.
+        const nodes = await loadAllNodes(db, freshRun.flow_id);
+        return await handleReplyForActiveRun(db, freshRun, input.message, nodes);
+      } finally {
+        await releaseRunLock(db, activeRun.id);
+      }
     }
 
     // No active run (e.g. the flow already completed an order) — a

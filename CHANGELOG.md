@@ -9,6 +9,22 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.20.3] — 2026-07-11
+
+### Fixed
+
+- **Two customer replies arriving within a second or two of each other
+  (e.g. double-tapping two different interactive buttons) could both
+  advance the same flow run concurrently**, each sending its own
+  messages before either committed — duplicate/interleaved sends,
+  caught only after the fact (too late) by the existing optimistic
+  `current_node_key` check. `flow_runs` gained a `locked_at` column
+  (migration 049); `dispatchInboundToFlows` now claims a short-lived
+  per-run lock before doing any node work, so a second concurrent
+  reply waits for the first to finish and then sees its already-
+  advanced state instead of racing it. `src/lib/flows/engine.ts`
+  (`tryClaimRun`, `claimRunWithWait`, `releaseRunLock`).
+
 ## [0.20.2] — 2026-07-11
 
 ### Fixed

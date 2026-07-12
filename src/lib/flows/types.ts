@@ -437,6 +437,7 @@ export interface DispatchInboundResult {
     | "media_trigger_fired"
     | "off_menu_answered"
     | "duplicate_inbound_ignored"
+    | "run_busy_skipped"
     | "no_match";
 }
 
