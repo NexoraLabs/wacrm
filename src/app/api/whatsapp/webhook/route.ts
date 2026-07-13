@@ -832,6 +832,14 @@ export async function processMessage(
       configOwnerUserId,
       metaMessageId: message.id,
       messageText: inboundText,
+      // Frame stale taps explicitly — without this, the model sees a
+      // bare button label with no question mark and, per its "prefer
+      // handoff over guessing" instruction, hands off to a human on
+      // nearly every one instead of just answering. The label alone is
+      // enough context to answer directly.
+      extraContext: interactiveReplyId
+        ? `The customer tapped the "${inboundText}" button from an earlier menu — that step already finished, so no flow is listening for it anymore, but they clearly want that topic. Treat it as if they'd typed "${inboundText}" as a question and answer it directly; don't hand off just because it isn't phrased as a question.`
+        : undefined,
     })
   }
 

@@ -9,6 +9,22 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.22.2] — 2026-07-13
+
+### Fixed
+
+- **0.22.1's stale-button fallback mostly handed off instead of
+  answering.** Confirmed live: the fallback reached the AI correctly,
+  but with only a bare button label ("Ver cómo funciona 🎥") and no
+  framing, the model's "prefer handoff over guessing" instruction
+  kicked in almost every time — the customer still saw silence, just
+  now paired with a "review this conversation" notification instead of
+  nothing. `dispatchInboundToAiReply` (`src/lib/ai/auto-reply.ts`) takes
+  a new optional `extraContext`, which the webhook now sets for
+  interactive taps: it tells the model this is a customer re-selecting
+  an already-finished menu option, not an unclear message, and to
+  answer it directly.
+
 ## [0.22.1] — 2026-07-13
 
 ### Fixed

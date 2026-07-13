@@ -68,6 +68,10 @@ interface DispatchArgs {
    *  stand-down check below) rather than standing down just because one
    *  exists on the account. */
   messageText: string
+  /** Extra framing layered into the system prompt for this call only,
+   *  e.g. telling the model `messageText` is a stale button tap rather
+   *  than a literal customer question — see the webhook's call site. */
+  extraContext?: string
 }
 
 /**
@@ -99,7 +103,7 @@ interface DispatchArgs {
 export async function dispatchInboundToAiReply(
   args: DispatchArgs,
 ): Promise<void> {
-  const { accountId, conversationId, contactId, configOwnerUserId, metaMessageId, messageText } = args
+  const { accountId, conversationId, contactId, configOwnerUserId, metaMessageId, messageText, extraContext } = args
 
   try {
     const db = supabaseAdmin()
@@ -182,11 +186,15 @@ export async function dispatchInboundToAiReply(
       conversationId,
     )
 
+    const combinedExtra = [productContext, extraContext]
+      .filter((v): v is string => !!v && v.trim().length > 0)
+      .join('\n\n')
+
     const systemPrompt = buildSystemPrompt({
       userPrompt: config.systemPrompt,
       mode: 'auto_reply',
       knowledge,
-      extraInstruction: productContext ?? undefined,
+      extraInstruction: combinedExtra || undefined,
     })
 
     await showTypingIndicator(db, { accountId, conversationId, metaMessageId })
