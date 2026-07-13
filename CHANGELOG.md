@@ -9,6 +9,20 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.20.10] — 2026-07-12
+
+### Fixed
+
+- **An agent replying manually in the Inbox didn't stop the AI from
+  also answering the same conversation.** Sending a message by hand
+  already paused any active Flow run (the "human is here" signal),
+  but left `ai_autoreply_disabled` untouched, so the general AI
+  auto-reply could keep responding in parallel — including
+  improvising an order confirmation with nothing behind it, since the
+  actual checkout flow was the thing that got paused. A human-authored
+  send now also disables auto-reply for that conversation.
+  `src/lib/whatsapp/send-message.ts`.
+
 ## [0.20.9] — 2026-07-12
 
 ### Fixed
