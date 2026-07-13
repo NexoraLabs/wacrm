@@ -807,12 +807,24 @@ export async function processMessage(
     }).catch((err) => console.error('[automations] dispatch failed:', err))
   }
 
-  // AI auto-reply. Runs only for plain-text inbound the deterministic
-  // flow runner did NOT consume (flows win over the LLM), and only when
-  // the account has enabled it. Awaited inside `after()` (same reason as
-  // the webhook dispatch below); `dispatchInboundToAiReply` owns its
-  // eligibility gates + try/catch and never throws.
-  if (!flowConsumed && !interactiveReplyId && inboundText.trim()) {
+  // AI auto-reply. Runs for inbound the deterministic flow runner did
+  // NOT consume (flows win over the LLM), and only when the account has
+  // enabled it. Awaited inside `after()` (same reason as the webhook
+  // dispatch below); `dispatchInboundToAiReply` owns its eligibility
+  // gates + try/catch and never throws.
+  //
+  // Includes interactive taps, not just free text: a button tap only
+  // reaches here when `dispatchInboundToFlows` found no active run to
+  // advance (`findEntryFlow` never starts a new run from a tap — see its
+  // doc comment) — e.g. a customer tapping an older button from the menu
+  // after their run already ended on a different branch. `inboundText`
+  // is already the tapped button's title in that case (`contentText`
+  // resolves to `reply.title || reply.id`), so the AI gets a real
+  // sentence to react to instead of an opaque `reply_id`. Previously
+  // excluded via `!interactiveReplyId`, which left every stale tap
+  // completely unanswered — worse than the equivalent stray-text case,
+  // which already got this same fallback.
+  if (!flowConsumed && inboundText.trim()) {
     await dispatchInboundToAiReply({
       accountId,
       conversationId: conversation.id,

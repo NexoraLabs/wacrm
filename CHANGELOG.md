@@ -9,6 +9,23 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.22.1] — 2026-07-13
+
+### Fixed
+
+- **Tapping an older button from a Flow's menu after the run already
+  ended got zero reply.** WhatsApp keeps a `send_buttons` message's
+  buttons tappable even after the conversation has moved on — a
+  customer who taps "Ver el precio" first (ending that flow's run on
+  purpose, e.g. Limpiavidrios Magnético's price step) and then goes
+  back and taps a different button from the same menu got total
+  silence, because interactive taps were unconditionally excluded from
+  the AI auto-reply fallback that stray free-text already had.
+  `src/app/api/whatsapp/webhook/route.ts` now includes interactive
+  taps in that fallback — the tapped button's title (already resolved
+  as `contentText`) goes to the AI as if the customer had typed it, the
+  same path an off-menu question already used.
+
 ## [0.22.0] — 2026-07-13
 
 ### Added
