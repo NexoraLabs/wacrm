@@ -101,6 +101,23 @@ export function matchReplyId(
 }
 
 /**
+ * Scans every node in a flow (not just the current one) for a button or
+ * list row with this `reply_id`, and returns what it points to. Used
+ * for a tap on a button from a menu the run has already moved past —
+ * unlike `matchReplyId`, which only checks the run's current node.
+ */
+export function findNodeKeyByReplyId(
+  nodes: Map<string, { node_type: string; config: Record<string, unknown> }>,
+  replyId: string,
+): string | null {
+  for (const node of nodes.values()) {
+    const hit = matchReplyId(node, replyId);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
  * QR-provider counterpart to `matchReplyId`. Baileys has no interactive
  * tap — `engineSendInteractiveButtons`/`List` (meta-send.ts) render the
  * options as a numbered text menu instead, so the customer's reply
@@ -551,6 +568,29 @@ async function findEntryFlow(
     // 'manual' triggers do not auto-start from inbound messages.
   }
   return null;
+}
+
+/**
+ * Most recent flow the contact has ever run (any status — active,
+ * completed, abandoned), regardless of which flow it was. Used to
+ * resolve a stale button tap: the button's `reply_id` only makes sense
+ * in the context of whatever flow actually sent it, and a contact
+ * realistically only has one flow's menu on screen at a time.
+ */
+async function findMostRecentFlowIdForContact(
+  db: AdminClient,
+  accountId: string,
+  contactId: string,
+): Promise<string | null> {
+  const { data } = await db
+    .from("flow_runs")
+    .select("flow_id")
+    .eq("account_id", accountId)
+    .eq("contact_id", contactId)
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as { flow_id: string } | null)?.flow_id ?? null;
 }
 
 /**
@@ -1408,6 +1448,46 @@ export async function dispatchInboundToFlows(
       }
     }
 
+    // A tap on a button from an OLDER menu the contact already moved
+    // past (e.g. their run ended on a different branch, like
+    // Limpiavidrios Magnético's price step) — WhatsApp keeps a
+    // send_buttons message's buttons tappable indefinitely, so this is
+    // a normal thing for a customer to do. We already know exactly what
+    // that button is supposed to show; no need to route it through the
+    // AI as an ambiguous free-text question (which, live-tested, mostly
+    // handed off instead of answering — see commit history). Re-serve
+    // the button's own branch deterministically instead.
+    if (input.message.kind === "interactive_reply") {
+      const recentFlowId = await findMostRecentFlowIdForContact(
+        db,
+        input.accountId,
+        input.contactId,
+      );
+      if (recentFlowId) {
+        const nodes = await loadAllNodes(db, recentFlowId);
+        const targetNodeKey = findNodeKeyByReplyId(
+          nodes,
+          input.message.reply_id,
+        );
+        if (targetNodeKey) {
+          const { data: flowRow } = await db
+            .from("flows")
+            .select("*")
+            .eq("id", recentFlowId)
+            .maybeSingle();
+          if (flowRow) {
+            return startRunAtNode(
+              db,
+              flowRow as FlowRow,
+              input,
+              nodes,
+              targetNodeKey,
+            );
+          }
+        }
+      }
+    }
+
     // No active run (e.g. the flow already completed an order) — a
     // keyword media trigger should still fire so "ver el producto" /
     // "fotos" etc. send photos instead of silently falling through to
@@ -1913,7 +1993,12 @@ async function startNewRun(
   flow: FlowRow,
   input: DispatchInboundInput,
   nodes: Map<string, FlowNodeRow>,
+  /** Defaults to the flow's real entry node. Overridden by
+   *  `startRunAtNode` below to drop straight into a specific branch
+   *  instead of the flow's normal beginning. */
+  startNodeKey: string | null = flow.entry_node_id,
 ): Promise<DispatchInboundResult> {
+  if (!startNodeKey) return { consumed: false, outcome: "no_match" };
   // INSERT — partial unique index `idx_one_active_run_per_contact`
   // catches concurrent inserts with 23505. We catch and return as
   // consumed:true (the parallel webhook handles it).
@@ -1932,7 +2017,7 @@ async function startNewRun(
       contact_id: input.contactId,
       conversation_id: input.conversationId,
       status: "active",
-      current_node_key: flow.entry_node_id,
+      current_node_key: startNodeKey,
     })
     .select("*")
     .maybeSingle();
@@ -1946,7 +2031,7 @@ async function startNewRun(
     return { consumed: false, outcome: "no_match" };
   }
   const run = inserted as FlowRunRow;
-  await logEvent(db, run.id, "started", flow.entry_node_id, {
+  await logEvent(db, run.id, "started", startNodeKey, {
     flow_id: flow.id,
     trigger_type: flow.trigger_type,
     meta_message_id: input.message.meta_message_id,
@@ -1967,11 +2052,11 @@ async function startNewRun(
     console.error("[flows] execution_count rpc error:", incErr.message);
   }
 
-  // Run the advance loop starting from the entry node.
+  // Run the advance loop starting from the given node.
   const outcome = await advanceFromNodeKey(
     db,
     run,
-    flow.entry_node_id!,
+    startNodeKey,
     nodes,
     input.message.meta_message_id,
   );
@@ -1980,4 +2065,21 @@ async function startNewRun(
     flow_run_id: run.id,
     outcome: outcome.outcome === "advanced" ? "started" : outcome.outcome,
   };
+}
+
+/**
+ * A stale button tap resolved to a specific branch (see the
+ * `findNodeKeyByReplyId` call site) — start a fresh run of that flow,
+ * but dropped directly into that branch's target node instead of the
+ * flow's normal entry point. Thin wrapper so the call site reads as
+ * "start here", not "start... but also here's an override".
+ */
+function startRunAtNode(
+  db: AdminClient,
+  flow: FlowRow,
+  input: DispatchInboundInput,
+  nodes: Map<string, FlowNodeRow>,
+  startNodeKey: string,
+): Promise<DispatchInboundResult> {
+  return startNewRun(db, flow, input, nodes, startNodeKey);
 }

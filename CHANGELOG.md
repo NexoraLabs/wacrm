@@ -9,6 +9,26 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.22.4] — 2026-07-13
+
+### Fixed
+
+- **A stale button tap now re-serves its real content instead of
+  gambling on the AI.** 0.22.2's fix routed a tap on an older, already-
+  finished menu button to the AI as a free-text question — live-tested
+  and found unreliable: the model mostly handed off to a human instead
+  of answering (it saw a bare button label like "Ver cómo funciona 🎥"
+  with no question mark and, per its "prefer handoff over guessing"
+  instruction, gave up rather than replying), leaving the customer
+  looking at a "typing…" indicator that resolved to nothing. There's no
+  need to guess: the tapped button's `reply_id` is scanned against every
+  node in the contact's most recently-run flow (`findNodeKeyByReplyId`,
+  `src/lib/flows/engine.ts`), and if it matches, a fresh run starts
+  straight at that branch's target node (`startRunAtNode`) — the exact
+  video or message that option always sends, deterministically, no LLM
+  call involved. Falls back to the AI-driven 0.22.2 path only when no
+  matching button is found.
+
 ## [0.22.3] — 2026-07-13
 
 ### Fixed
