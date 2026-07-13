@@ -118,6 +118,29 @@ export function findNodeKeyByReplyId(
 }
 
 /**
+ * Text counterpart to `findNodeKeyByReplyId`, for QR conversations —
+ * Baileys has no real button tap, so the equivalent "stale menu tap" is
+ * the customer typing a number (or the option's title) after the run
+ * that sent that numbered menu has already ended. `matchTextReplyToMenu`
+ * already refuses to match anything that isn't a real position/title
+ * hit, so trying every send_buttons/send_list node in the flow and
+ * taking the first match is safe — nothing here is a guess.
+ */
+export function findNodeKeyByText(
+  nodes: Map<string, { node_type: string; config: Record<string, unknown> }>,
+  text: string,
+): string | null {
+  for (const node of nodes.values()) {
+    if (node.node_type !== "send_buttons" && node.node_type !== "send_list") {
+      continue;
+    }
+    const hit = matchTextReplyToMenu(node, text, false);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+/**
  * QR-provider counterpart to `matchReplyId`. Baileys has no interactive
  * tap — `engineSendInteractiveButtons`/`List` (meta-send.ts) render the
  * options as a numbered text menu instead, so the customer's reply
@@ -128,6 +151,12 @@ export function findNodeKeyByReplyId(
 export function matchTextReplyToMenu(
   node: { node_type: string; config: Record<string, unknown> },
   text: string,
+  /** Skip the substring fallback below — set false when there's no
+   *  active run pinning this text to a just-sent menu (see
+   *  `findNodeKeyByText`), where a genuine sentence that happens to
+   *  contain a button's title (e.g. "cómo funciona esto?") would
+   *  otherwise be misread as a menu reply instead of a real question. */
+  allowPartial = true,
 ): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -167,6 +196,7 @@ export function matchTextReplyToMenu(
   const needle = normalize(trimmed);
   const exact = options.find((o) => normalize(o.title) === needle);
   if (exact) return exact.next_node_key;
+  if (!allowPartial) return null;
   const partial = options.find(
     (o) =>
       normalize(o.title).includes(needle) ||
@@ -1448,42 +1478,45 @@ export async function dispatchInboundToFlows(
       }
     }
 
-    // A tap on a button from an OLDER menu the contact already moved
-    // past (e.g. their run ended on a different branch, like
-    // Limpiavidrios Magnético's price step) — WhatsApp keeps a
-    // send_buttons message's buttons tappable indefinitely, so this is
-    // a normal thing for a customer to do. We already know exactly what
-    // that button is supposed to show; no need to route it through the
-    // AI as an ambiguous free-text question (which, live-tested, mostly
-    // handed off instead of answering — see commit history). Re-serve
-    // the button's own branch deterministically instead.
-    if (input.message.kind === "interactive_reply") {
-      const recentFlowId = await findMostRecentFlowIdForContact(
-        db,
-        input.accountId,
-        input.contactId,
-      );
-      if (recentFlowId) {
-        const nodes = await loadAllNodes(db, recentFlowId);
-        const targetNodeKey = findNodeKeyByReplyId(
-          nodes,
-          input.message.reply_id,
-        );
-        if (targetNodeKey) {
-          const { data: flowRow } = await db
-            .from("flows")
-            .select("*")
-            .eq("id", recentFlowId)
-            .maybeSingle();
-          if (flowRow) {
-            return startRunAtNode(
-              db,
-              flowRow as FlowRow,
-              input,
-              nodes,
-              targetNodeKey,
-            );
-          }
+    // A reply to an OLDER menu the contact already moved past (e.g.
+    // their run ended on a different branch, like Limpiavidrios
+    // Magnético's price step) — WhatsApp keeps a send_buttons message's
+    // buttons tappable indefinitely (Cloud API: a real button tap,
+    // `interactive_reply`; QR: no real tap exists, so the equivalent is
+    // typing the option's number/title as plain text — see
+    // `matchTextReplyToMenu`'s doc comment). Either way this is a normal
+    // thing for a customer to do, and we already know exactly what that
+    // option is supposed to show — no need to route it through the AI
+    // as an ambiguous message (live-tested for the interactive case:
+    // mostly handed off instead of answering — see commit history) or,
+    // worse for QR, let a bare "2" get misread as "I want 2 units" by
+    // the general auto-reply. Re-serve the option's own branch
+    // deterministically instead.
+    const recentFlowId = await findMostRecentFlowIdForContact(
+      db,
+      input.accountId,
+      input.contactId,
+    );
+    if (recentFlowId) {
+      const nodes = await loadAllNodes(db, recentFlowId);
+      const targetNodeKey =
+        input.message.kind === "interactive_reply"
+          ? findNodeKeyByReplyId(nodes, input.message.reply_id)
+          : findNodeKeyByText(nodes, input.message.text);
+      if (targetNodeKey) {
+        const { data: flowRow } = await db
+          .from("flows")
+          .select("*")
+          .eq("id", recentFlowId)
+          .maybeSingle();
+        if (flowRow) {
+          return startRunAtNode(
+            db,
+            flowRow as FlowRow,
+            input,
+            nodes,
+            targetNodeKey,
+          );
         }
       }
     }

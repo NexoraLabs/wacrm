@@ -9,6 +9,26 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.22.5] — 2026-07-13
+
+### Fixed
+
+- **Extended 0.22.4's deterministic stale-menu fix to QR (Baileys)
+  conversations.** QR has no real button tap — a numbered menu is
+  rendered as plain text and the customer replies by typing the number
+  or the option's title. That text-based reply after the run had
+  already ended (the same "Ver el precio" dead-end scenario, just
+  without real buttons) wasn't covered by 0.22.4, which only checked
+  interactive taps: a bare "2" fell through to the generic AI auto-
+  reply exactly like a real order request would, risking the original
+  "got treated as an order" complaint. `findNodeKeyByText`
+  (`src/lib/flows/engine.ts`) mirrors `findNodeKeyByReplyId` for text,
+  scanning the contact's most recent flow's menu nodes via
+  `matchTextReplyToMenu` — with its substring-title fallback disabled
+  for this path specifically, so a genuine sentence that happens to
+  contain a button's title (e.g. "¿cómo funciona esto?") isn't misread
+  as a menu reply.
+
 ## [0.22.4] — 2026-07-13
 
 ### Fixed
