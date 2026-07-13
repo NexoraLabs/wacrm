@@ -437,12 +437,17 @@ export async function sendMessageToConversation(
     );
   }
 
+  // A human/agent-authored send is the strongest "yield, human is here"
+  // signal — stop the AI auto-reply on this thread too (sticky, like its
+  // other handoff triggers), so it can't keep answering in parallel and
+  // improvising things like a fake order confirmation.
   await db
     .from('conversations')
     .update({
       last_message_text: contentText || `[${messageType}]`,
       last_message_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      ai_autoreply_disabled: true,
     })
     .eq('id', conversationId);
 
