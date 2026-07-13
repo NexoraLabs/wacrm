@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Plus, Trash2, Loader2, X, Pencil, PackageX } from 'lucide-react';
+import { Plus, Trash2, Loader2, X, Pencil, PackageX, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -12,6 +12,7 @@ import { Switch } from '@/components/ui/switch';
 import { Card, CardContent } from '@/components/ui/card';
 import { SettingsPanelHead } from './settings-panel-head';
 import { ProductSheetSection } from './product-sheet-section';
+import { uploadAccountMedia, MEDIA_MAX_BYTES_BY_KIND } from '@/lib/storage/upload-media';
 import {
   Dialog,
   DialogContent,
@@ -71,6 +72,8 @@ export function ProductManager() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const imageFileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetchProducts();
@@ -203,6 +206,49 @@ export function ProductManager() {
     setForm((prev) => ({
       ...prev,
       specifications: prev.specifications.filter((_, i) => i !== index),
+    }));
+  }
+
+  const imageUrls = form.image_urls.split('\n').map((u) => u.trim()).filter(Boolean);
+
+  const handleImageFiles = useCallback(async (files: FileList) => {
+    const limit = MEDIA_MAX_BYTES_BY_KIND.image;
+    const uploaded: string[] = [];
+    setUploadingImages(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (file.size > limit) {
+          toast.error(`${file.name} is ${(file.size / 1024 / 1024).toFixed(1)} MB — limit is ${limit / 1024 / 1024} MB.`);
+          continue;
+        }
+        try {
+          const { publicUrl } = await uploadAccountMedia('flow-media', file);
+          uploaded.push(publicUrl);
+        } catch (err) {
+          toast.error(err instanceof Error ? err.message : `Failed to upload ${file.name}.`);
+        }
+      }
+      if (uploaded.length > 0) {
+        setForm((prev) => ({
+          ...prev,
+          image_urls: [...prev.image_urls.split('\n').map((u) => u.trim()).filter(Boolean), ...uploaded].join('\n'),
+        }));
+        toast.success(uploaded.length === 1 ? 'Image uploaded.' : `${uploaded.length} images uploaded.`);
+      }
+    } finally {
+      setUploadingImages(false);
+    }
+  }, []);
+
+  function removeImageUrl(index: number) {
+    setForm((prev) => ({
+      ...prev,
+      image_urls: prev.image_urls
+        .split('\n')
+        .map((u) => u.trim())
+        .filter(Boolean)
+        .filter((_, i) => i !== index)
+        .join('\n'),
     }));
   }
 
@@ -414,14 +460,77 @@ export function ProductManager() {
             </div>
 
             <div className="space-y-2">
-              <Label className="text-muted-foreground">Image URLs (optional, one per line)</Label>
-              <Textarea
-                placeholder={'https://…/photo-1.jpg\nhttps://…/photo-2.jpg'}
-                value={form.image_urls}
-                onChange={(e) => setForm({ ...form, image_urls: e.target.value })}
-                rows={2}
-                className="bg-muted border-border text-foreground placeholder:text-muted-foreground resize-none"
+              <Label className="text-muted-foreground">Product images (optional)</Label>
+              {imageUrls.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {imageUrls.map((url, i) => (
+                    <div
+                      key={`${url}-${i}`}
+                      className="relative size-16 shrink-0 overflow-hidden rounded-md border border-border bg-muted"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element -- arbitrary externally-hosted/Storage URLs, not a known Next Image domain */}
+                      <img
+                        src={url}
+                        alt=""
+                        className="size-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeImageUrl(i)}
+                        aria-label="Remove image"
+                        className="absolute right-0.5 top-0.5 rounded-full bg-black/70 p-0.5 text-white hover:bg-black/90"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => imageFileInputRef.current?.click()}
+                disabled={uploadingImages}
+                className="flex w-full items-center justify-center gap-2 rounded-md border border-dashed border-border bg-card px-3 py-3 text-xs text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {uploadingImages ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Uploading…
+                  </>
+                ) : (
+                  <>
+                    <Upload className="size-3.5" />
+                    Click to upload image(s) (max 5 MB each)
+                  </>
+                )}
+              </button>
+              <input
+                ref={imageFileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = e.target.files;
+                  if (files && files.length > 0) void handleImageFiles(files);
+                  e.target.value = '';
+                }}
               />
+              <details className="text-xs text-muted-foreground">
+                <summary className="cursor-pointer select-none hover:text-foreground">
+                  Or paste image URLs manually
+                </summary>
+                <Textarea
+                  placeholder={'https://…/photo-1.jpg\nhttps://…/photo-2.jpg'}
+                  value={form.image_urls}
+                  onChange={(e) => setForm({ ...form, image_urls: e.target.value })}
+                  rows={2}
+                  className="bg-muted border-border text-foreground placeholder:text-muted-foreground resize-none mt-2"
+                />
+              </details>
             </div>
 
             <div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">

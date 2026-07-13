@@ -9,6 +9,36 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.22.0] — 2026-07-13
+
+### Added
+
+- **Product images can now be uploaded directly** in Settings →
+  Products instead of only accepting pasted URLs — matches the same
+  "Click to upload" pattern Flows/Automations media nodes and message
+  templates already use (`uploadAccountMedia`, reusing the
+  account-scoped `flow-media` bucket). Uploaded images show as
+  removable thumbnails; manually pasting URLs is still available as a
+  collapsed fallback for externally-hosted images.
+  `src/components/settings/product-manager.tsx`.
+
+### Fixed
+
+- **The Limpiavidrios welcome flow's checkout sequence had gone
+  unreachable in production** — `price_msg`'s `next_node_key` pointed
+  at a dead-end `end` node instead of `collect_quantity`, orphaning
+  the entire `collect_quantity → ... → do_export_order → tag_new_order`
+  chain (confirmed via the builder's own validator: 10 "unreachable
+  from the entry node" warnings). Root cause: the Flows builder's Save
+  button persists its whole client-side node graph at once, so an
+  earlier direct-database fix (see v0.20.9 in this changelog) got
+  silently reverted the next time the builder was saved from a
+  browser tab holding stale state. Re-applied the fix and confirmed
+  via a full fresh page reload that it now sticks. **Not a code
+  change** — a data fix, but worth logging: this class of "unreachable
+  node" regression is visible any time in the builder's own validation
+  panel, worth checking after any unrelated flow edit.
+
 ## [0.21.0] — 2026-07-13
 
 ### Added
