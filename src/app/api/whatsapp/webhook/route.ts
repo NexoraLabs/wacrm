@@ -676,6 +676,27 @@ export async function processMessage(
       ? 'image'   // stickers are images
       : 'text'    // reaction, unknown → text fallback
 
+  // Meta redelivers a webhook event when it doesn't see our 200 in time
+  // (slow `after()` work, a proxy hiccup, etc.) — WITH THE SAME
+  // message.id. Nothing downstream was idempotent against that: each
+  // redelivery inserted its own `messages` row and re-ran flow dispatch
+  // + AI auto-reply from scratch, which (for a conversation with no
+  // active flow run) meant a fresh LLM call and a fresh WhatsApp send
+  // every single retry — observed in production as ~20 slightly-reworded
+  // AI replies to the same customer inside 2 minutes, roughly 6s apart,
+  // with zero new customer input between them. `message.id` is Meta's
+  // own id for this exact inbound event, so a prior row with it is
+  // unambiguously a redelivery, not a coincidence.
+  const { data: existingByMetaId } = await supabaseAdmin()
+    .from('messages')
+    .select('id')
+    .eq('message_id', message.id)
+    .maybeSingle()
+  if (existingByMetaId) {
+    console.warn('[webhook] duplicate delivery ignored, message_id:', message.id)
+    return
+  }
+
   // Determine whether this is the contact's very first inbound message
   // BEFORE we insert, so the count is accurate. Covers the case where
   // the contact row already exists (manual add / CSV import) but they've

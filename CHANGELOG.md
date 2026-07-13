@@ -9,6 +9,26 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.22.3] — 2026-07-13
+
+### Fixed
+
+- **Critical: a redelivered WhatsApp webhook could spam a customer with
+  repeated AI auto-replies.** Live-observed on a test conversation: ~20
+  distinct AI-generated messages sent to the same customer in ~2
+  minutes with zero new input from them. Root cause: nothing in
+  `processMessage` (`src/app/api/whatsapp/webhook/route.ts`) checked
+  whether an inbound `message.id` had already been processed before
+  inserting it and re-running flow dispatch + AI auto-reply from
+  scratch — Meta redelivers a webhook event when it doesn't see the 200
+  in time, and each redelivery got treated as a brand-new customer
+  message. The flow engine already had this protection for its own
+  active-run path (`isDuplicateInbound`); nothing covered the
+  AI-auto-reply path, which 0.22.1 had just made reachable for more
+  cases. Added a dedup check on `messages.message_id` before insert —
+  a repeat delivery of the same event is now dropped immediately, before
+  any flow or AI dispatch runs.
+
 ## [0.22.2] — 2026-07-13
 
 ### Fixed
