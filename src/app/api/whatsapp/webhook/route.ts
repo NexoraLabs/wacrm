@@ -8,6 +8,7 @@ import { verifyMetaWebhookSignature } from '@/lib/whatsapp/webhook-signature'
 import { runAutomationsForTrigger } from '@/lib/automations/engine'
 import { dispatchInboundToFlows } from '@/lib/flows/engine'
 import { dispatchInboundToAiReply } from '@/lib/ai/auto-reply'
+import { transcribeAudio } from '@/lib/ai/transcribe'
 import { dispatchWebhookEvent } from '@/lib/webhooks/deliver'
 import {
   handleTemplateWebhookChange,
@@ -931,8 +932,35 @@ export async function parseMessageContent(
 
     case 'audio':
       if (message.audio?.id) {
+        // Meta-only: QR/Baileys callers pass `precomputedMediaUrl` and
+        // never reach here with a real accessToken to re-download from
+        // Meta — they skip straight to the mediaUrl below like every
+        // other media type. Not yet transcribed for that path.
+        let contentText: string | null = null
+        if (!precomputedMediaUrl && accessToken) {
+          try {
+            const { url: downloadUrl, mimeType } = await getMediaUrl({
+              mediaId: message.audio.id,
+              accessToken,
+            })
+            const { buffer, contentType: downloadedMime } = await downloadMedia({
+              downloadUrl,
+              accessToken,
+            })
+            contentText = await transcribeAudio(
+              buffer,
+              downloadedMime || mimeType || message.audio.mime_type,
+            )
+          } catch (error) {
+            console.error(
+              `Failed to transcribe audio ${message.audio.id}:`,
+              error instanceof Error ? error.message : error,
+            )
+          }
+        }
         return {
           ...empty,
+          contentText,
           mediaUrl: await verifyAndBuildUrl(message.audio.id),
           mediaType: message.audio.mime_type,
         }

@@ -9,6 +9,33 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.21.0] — 2026-07-13
+
+### Added
+
+- **Inbound WhatsApp voice notes are now transcribed** so Flows and the
+  AI auto-reply can actually read what a customer said instead of
+  treating audio as opaque, textless media. Root-caused via a real
+  customer conversation where a checkout flow got stuck at its button
+  menu because the customer asked a clarifying question by voice note
+  three times in a row — the flow (waiting for a button tap) and the
+  AI auto-reply (whose context excludes non-text messages) both had no
+  way to know what she'd actually asked, so replies stayed generic and
+  the conversation dragged on long enough that a human had to step in.
+  New `src/lib/ai/transcribe.ts` calls OpenAI's
+  `gpt-4o-mini-transcribe` using a dedicated app-level key
+  (`OPENAI_TRANSCRIBE_API_KEY`), independent of each account's own
+  BYOK chat provider (Anthropic has no speech-to-text; OpenRouter has
+  no dedicated transcription endpoint) — set it in your deployment
+  env to enable; inbound audio behaves exactly as before if unset.
+  Wired into the Meta Cloud API webhook's audio handling
+  (`src/app/api/whatsapp/webhook/route.ts`); the transcript is stored
+  as the message's own `content_text`, so it flows through to Flows
+  and auto-reply with no changes needed there beyond widening
+  `buildConversationContext`'s history filter
+  (`src/lib/ai/context.ts`) to include transcribed audio. **Not yet
+  wired for the QR/Baileys provider's inbound audio.**
+
 ## [0.20.10] — 2026-07-12
 
 ### Fixed
