@@ -9,6 +9,27 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.22.7] — 2026-07-14
+
+### Fixed
+
+- **Editing any step nested inside a condition branch (e.g. a "Send
+  Message" step under a condition's Yes/No branch) silently discarded
+  every edit** — typing a new message body, changing a tag, anything —
+  because the field never actually stuck once you hit Save.
+  `StepRenderer` (`src/components/automations/automation-builder.tsx`)
+  built each nested step's tree path by appending onto `parentPath`,
+  but `parentPath` for a branch scope already ended with the
+  placeholder marker `ConditionBranches` uses so `StepList` can derive
+  scope — appending instead of replacing it left the path one level
+  deeper than the step's real position, so `mapAtPath`/`walkBranches`
+  walked past the leaf and silently no-op'd. Root-level steps (Wait,
+  a top-level Condition) were unaffected, which is why this went
+  unnoticed. Fixed by replacing the placeholder segment instead of
+  appending past it. Verified end-to-end: typed a new message into a
+  Send Message step nested under a condition, saved, reloaded — the
+  new text now persists.
+
 ## [0.22.6] — 2026-07-13
 
 ### Changed

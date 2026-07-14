@@ -1150,12 +1150,21 @@ function StepRenderer({
   parentScope: ParentScope
   parentPath: StepPath
 } & Omit<StepListProps, "steps" | "parentPath">) {
-  const path: StepPath = [
-    ...parentPath,
+  // parentPath for a branch scope already ends with the placeholder
+  // marker StepList used to derive parentScope (see ConditionBranches —
+  // "the tail's index doesn't matter, it's replaced per child"). Appending
+  // instead of replacing that marker left every step nested inside a
+  // condition branch one level deeper than its real tree position, so
+  // mapAtPath/walkBranches walked past the leaf and silently no-op'd any
+  // edit (e.g. typing a Send Message body never stuck). Root scope has no
+  // such placeholder, so it still appends.
+  const path: StepPath =
     parentScope.kind === "root"
-      ? { kind: "root", index }
-      : { kind: "branch", parentCid: parentScope.parentCid, branch: parentScope.branch, index },
-  ]
+      ? [...parentPath, { kind: "root", index }]
+      : [
+          ...parentPath.slice(0, -1),
+          { kind: "branch", parentCid: parentScope.parentCid, branch: parentScope.branch, index },
+        ]
   const meta = STEP_META[step.step_type]
   const Icon = meta.icon
   const expanded = props.expandedId === step.cid
