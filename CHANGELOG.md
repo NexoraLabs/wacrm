@@ -9,6 +9,14 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.22.6] — 2026-07-13
+
+### Changed
+
+- **Rebranded the app header and browser tab title from "wacrm" /
+  "CRM Template for WhatsApp" to "Nexora IA Seller"**
+  (`src/app/layout.tsx`, `src/components/layout/sidebar.tsx`).
+
 ## [0.22.5] — 2026-07-13
 
 ### Fixed
