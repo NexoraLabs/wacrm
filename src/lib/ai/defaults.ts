@@ -26,6 +26,32 @@ export const AI_PROVIDER_DEFAULT_MODEL: Record<AiProvider, string> = {
  */
 export const HANDOFF_SENTINEL = '[[HANDOFF]]'
 
+/**
+ * Backstop for auto-reply mode's anti-fabrication rule (see
+ * `buildSystemPrompt`). That rule is just prompt text — a cheap/small
+ * model can and does ignore it under real conversational pressure
+ * (confirmed twice in production against gpt-4o-mini: the model
+ * collected a customer's address and replied "tu pedido está
+ * registrado" instead of emitting `HANDOFF_SENTINEL`, with no export,
+ * no deal, and no owner notification, since the system had no idea
+ * anything had gone wrong). Don't rely on prompt compliance alone —
+ * scan the model's own output for order-confirmation language and
+ * treat it as a forced handoff regardless of what the model decided.
+ */
+const ORDER_CONFIRMATION_PATTERNS: RegExp[] = [
+  /confirm\w*\s+(que\s+)?(el\s+|tu\s+|su\s+)?pedido/i,
+  /pedido\s+.{0,25}\b(qued[oa]|est[aá]|fue|ha\s+sido)\s+.{0,15}\bregistrad/i,
+  /pedido\s+.{0,25}\bregistrad/i,
+  /pedido\s+.{0,25}\bconfirmad/i,
+  /\border\s+(is\s+)?(confirmed|registered|placed)\b/i,
+]
+
+/** True if `text` claims an order was placed/confirmed/registered —
+ *  something only a real checkout flow can do, never the AI itself. */
+export function containsOrderConfirmationClaim(text: string): boolean {
+  return ORDER_CONFIRMATION_PATTERNS.some((pattern) => pattern.test(text))
+}
+
 /** Cap on generated reply length — keeps WhatsApp replies short and
  *  bounds token spend on the caller's own key. */
 export const MAX_OUTPUT_TOKENS = 1024

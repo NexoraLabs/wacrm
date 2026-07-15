@@ -9,6 +9,29 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.22.8] — 2026-07-14
+
+### Fixed
+
+- **AI auto-reply could fabricate a full order confirmation
+  ("tu pedido está registrado...") and the customer's order would
+  never reach Google Sheets** — with no error, no notification, and
+  no sign anything was wrong, because from the system's point of view
+  the AI had successfully answered. The account already had a system
+  prompt instruction (v0.20.9) forbidding the model from claiming an
+  order was placed, requiring it to hand off to a human instead — but
+  a cheap model (`gpt-4o-mini` here) can and does ignore that
+  instruction under real conversational pressure (confirmed twice in
+  production now). Added a deterministic backstop in
+  `src/lib/ai/defaults.ts` (`containsOrderConfirmationClaim`):
+  `dispatchInboundToAiReply` (`src/lib/ai/auto-reply.ts`) now scans
+  the model's own reply text for order-confirmation language
+  regardless of whether it emitted the handoff sentinel, and forces
+  the same handoff path (disable auto-reply on the conversation,
+  notify the account owner) if it matches — so a fabricated
+  confirmation is caught even when the model never admits it handed
+  off.
+
 ## [0.22.7] — 2026-07-14
 
 ### Fixed

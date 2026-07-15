@@ -221,4 +221,18 @@ describe('dispatchInboundToAiReply — handoff', () => {
     expect(h.state.updatePayload).toEqual({ ai_autoreply_disabled: true })
     expect(h.state.rpcCalls).toHaveLength(0)
   })
+
+  it('forces a handoff when the model fabricates an order confirmation without the sentinel', async () => {
+    // Regression: a cheap model can ignore the prompt's anti-fabrication
+    // rule and claim an order was placed without ever emitting
+    // HANDOFF_SENTINEL — this must still be caught and blocked.
+    h.generateReply.mockResolvedValue({
+      text: 'Perfecto, confirmo que el pedido de 1 unidad está listo. Tu pedido está registrado y será enviado pronto.',
+      handoff: false,
+    })
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.engineSendText).not.toHaveBeenCalled()
+    expect(h.state.updatePayload).toEqual({ ai_autoreply_disabled: true })
+    expect(h.state.rpcCalls).toHaveLength(0)
+  })
 })

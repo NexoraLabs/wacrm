@@ -5,7 +5,7 @@ import { buildConversationContext } from './context'
 import { retrieveKnowledge } from './knowledge'
 import { resolveProductPromptContext } from './product-context'
 import { generateReply } from './generate'
-import { buildSystemPrompt } from './defaults'
+import { buildSystemPrompt, containsOrderConfirmationClaim } from './defaults'
 import { latestUserMessage } from './query'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { showTypingIndicator } from '@/lib/whatsapp/typing-indicator'
@@ -199,11 +199,18 @@ export async function dispatchInboundToAiReply(
 
     await showTypingIndicator(db, { accountId, conversationId, metaMessageId })
 
-    const { text, handoff } = await generateReply({
+    const { text, handoff: modelHandoff } = await generateReply({
       config,
       systemPrompt,
       messages,
     })
+
+    // The prompt tells the model never to claim an order was placed —
+    // but that's just an instruction, not a guarantee. Don't trust
+    // compliance: scan the model's own words and force a handoff if it
+    // fabricated a confirmation anyway, same as if it had emitted the
+    // sentinel itself.
+    const handoff = modelHandoff || (!!text && containsOrderConfirmationClaim(text))
 
     if (handoff || !text) {
       // The model can't (or shouldn't) answer — stop auto-replying on
