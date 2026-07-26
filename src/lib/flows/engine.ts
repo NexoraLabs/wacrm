@@ -42,7 +42,7 @@ import {
 import { decideFallback, resolveFallbackPolicy } from "./fallback";
 import { loadAiConfig } from "@/lib/ai/config";
 import { buildConversationContext } from "@/lib/ai/context";
-import { buildSystemPrompt } from "@/lib/ai/defaults";
+import { buildSystemPrompt, containsOrderConfirmationClaim } from "@/lib/ai/defaults";
 import { generateReply } from "@/lib/ai/generate";
 import { retrieveKnowledge } from "@/lib/ai/knowledge";
 import { resolveProductPromptContext } from "@/lib/ai/product-context";
@@ -853,6 +853,44 @@ async function endRun(
 // ============================================================
 
 /**
+ * generateAiAnswer detected the model fabricating an order confirmation
+ * (never sent to the customer). Surface it in the Inbox the same way
+ * dispatchInboundToAiReply's handoff does, so it doesn't just vanish
+ * into a log line — a real customer is mid-purchase with nobody now
+ * answering them.
+ */
+async function notifyOwnerOfBlockedFabrication(
+  db: AdminClient,
+  run: FlowRunRow,
+): Promise<void> {
+  if (run.conversation_id) {
+    await db
+      .from("conversations")
+      .update({ status: "pending", updated_at: new Date().toISOString() })
+      .eq("id", run.conversation_id);
+  }
+  try {
+    await db.from("notifications").insert({
+      account_id: run.account_id,
+      user_id: run.user_id,
+      type: "automation_alert",
+      conversation_id: run.conversation_id,
+      contact_id: run.contact_id,
+      actor_user_id: null,
+      title: "🤝 La IA necesita que tomes esta conversación",
+      body:
+        "El asistente iba a confirmar un pedido sin haberlo registrado " +
+        "realmente — se bloqueó el mensaje antes de enviarlo. Revísala en el Inbox.",
+    });
+  } catch (err) {
+    console.error(
+      "[flows] failed to notify owner of blocked fabrication:",
+      err,
+    );
+  }
+}
+
+/**
  * Shared AI-answer generation, used by the `ai_reply` node and by the
  * "free text at a button menu" intercept in handleReplyForActiveRun.
  * Returns null (rather than throwing) when there's no AI configured or
@@ -901,6 +939,22 @@ async function generateAiAnswer(
   });
   const { text } = await generateReply({ config: aiConfig, systemPrompt, messages });
   if (!text.trim()) return null;
+
+  // This path (ai_reply node, off-topic-during-checkout answers, and
+  // off-menu free text) has no HANDOFF_SENTINEL protocol of its own — it
+  // just answers and sends. Unlike dispatchInboundToAiReply's auto_reply
+  // mode, there was previously NOTHING here scanning for a fabricated
+  // order confirmation, and this turned out to be the path real
+  // Limpiavidrios customers actually hit after their welcome flow
+  // completes (menu_buttons is a dead end by design — see
+  // handleReplyForActiveRun's off-menu branch), not auto-reply.ts's own
+  // dispatch. Confirmed live: a customer got "Tu pedido ha quedado
+  // registrado..." from exactly this function with zero export, deal, or
+  // owner notification. Apply the same regex backstop here.
+  if (containsOrderConfirmationClaim(text)) {
+    await notifyOwnerOfBlockedFabrication(db, run);
+    return null;
+  }
 
   const { whatsapp_message_id } = await engineSendText({
     accountId: run.account_id,

@@ -9,6 +9,36 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.22.9] — 2026-07-26
+
+### Fixed
+
+- **v0.22.8's anti-fabrication backstop only covered one of two AI
+  code paths — real Limpiavidrios customers were still getting
+  fabricated order confirmations with zero export.** `containsOrderConfirmationClaim`
+  was wired into `dispatchInboundToAiReply` (`src/lib/ai/auto-reply.ts`),
+  but `src/lib/flows/engine.ts`'s own `generateAiAnswer` — used for the
+  `ai_reply` node type, answering off-topic questions mid-checkout, and
+  (the big one) answering off-menu free text once a flow reaches a dead
+  end like `menu_buttons` — had no such check and no HANDOFF_SENTINEL
+  instruction either (it builds its prompt in `"draft"` mode). Since
+  this flow's trigger is `first_inbound_message` (fires once, ever) and
+  dead-ends after the price message by design, this off-menu path is
+  what most real post-welcome conversations actually hit — not
+  `auto-reply.ts`. Confirmed live: a customer got "Tu pedido ha quedado
+  registrado..." from exactly this function, with no export, no deal,
+  and no owner notification. `generateAiAnswer` now runs the same
+  regex backstop before sending; a match blocks the send, marks the
+  conversation `pending`, and notifies the account owner instead.
+- **The keyword-triggered checkout flow only matched the literal
+  phrase "quiero pedirlo"** — real customers said "Necesito 2",
+  "Quiero una unidad", "quiero un par", etc., none of which matched,
+  so the automated checkout (and its Google Sheets export) essentially
+  never fired for genuine purchase intent. Broadened the trigger's
+  keyword list (`trigger_config.keywords`) to cover the phrasings
+  actually seen in production, applied directly to the affected
+  account's flow row (data-only change, no migration).
+
 ## [0.22.8] — 2026-07-14
 
 ### Fixed
