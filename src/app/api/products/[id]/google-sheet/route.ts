@@ -18,6 +18,8 @@ import { NextResponse } from 'next/server';
 import { requireActiveSubscription } from '@/lib/billing/gate';
 import { getCurrentAccount, requireRole, toErrorResponse, ForbiddenError } from '@/lib/auth/account';
 import { extractSpreadsheetId } from '@/lib/google-sheets/spreadsheet-id';
+import { getFirstSheetTitle } from '@/lib/google-sheets/client';
+import { getAccessTokenForAccount } from '@/lib/google-sheets/oauth';
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit';
 
 type Params = { params: Promise<{ id: string }> };
@@ -128,10 +130,28 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
 
-    const sheetName =
+    // A caller that doesn't specify a tab (the Picker flow — Google's
+    // widget only returns a spreadsheet id, never a tab name) used to
+    // fall back to a hardcoded 'Orders' guess. That silently clobbered
+    // a merchant's real tab name on every re-pick (Google's own default
+    // first-tab name is locale-dependent — "Hoja 1" for Spanish
+    // spreadsheets, not "Orders" — so the guess was wrong for most
+    // real accounts). Auto-detect the spreadsheet's actual first tab
+    // instead; only fall back to 'Orders' if that lookup itself fails.
+    const explicitSheetName =
       typeof body?.sheetName === 'string' && body.sheetName.trim()
         ? body.sheetName.trim()
-        : 'Orders';
+        : null;
+    let sheetName = explicitSheetName;
+    if (!sheetName) {
+      try {
+        const accessToken = await getAccessTokenForAccount(ctx.supabase, ctx.accountId);
+        sheetName = await getFirstSheetTitle(accessToken, spreadsheetId);
+      } catch (err) {
+        console.error('[POST /api/products/[id]/google-sheet] tab auto-detect failed:', err);
+      }
+    }
+    sheetName = sheetName ?? 'Orders';
 
     const { data, error } = await ctx.supabase
       .from('product_sheet_configs')

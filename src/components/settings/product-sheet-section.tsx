@@ -147,7 +147,7 @@ export function ProductSheetSection({ productId }: { productId: string }) {
     void load();
   }, [load]);
 
-  async function saveSpreadsheetId(id: string) {
+  async function saveSpreadsheetId(id: string, explicitSheetName?: string) {
     if (!id.trim()) {
       toast.error('Pick a sheet or paste a spreadsheet id/URL first');
       return;
@@ -157,7 +157,14 @@ export function ProductSheetSection({ productId }: { productId: string }) {
       const res = await fetch(`/api/products/${productId}/google-sheet`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ spreadsheetId: id, sheetName }),
+        // Only send an explicit tab name for the manual-paste path,
+        // where the merchant actually typed it. The Picker path (see
+        // handleOpenPicker) omits it — Google's widget never returns a
+        // tab name, so sending this field's current local state there
+        // risked silently clobbering an already-correct saved tab name
+        // with a stale/placeholder value. Omitting it lets the server
+        // auto-detect the spreadsheet's real first tab instead.
+        body: JSON.stringify({ spreadsheetId: id, sheetName: explicitSheetName }),
       });
       const payload = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -206,6 +213,7 @@ export function ProductSheetSection({ productId }: { productId: string }) {
             setSpreadsheetInput(doc.id);
             setSpreadsheetName(doc.name);
             void saveSpreadsheetId(doc.id);
+            // deliberately no explicit sheetName here — see saveSpreadsheetId
           }
         })
         .build();
@@ -326,7 +334,7 @@ export function ProductSheetSection({ productId }: { productId: string }) {
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => void saveSpreadsheetId(spreadsheetInput)}
+                  onClick={() => void saveSpreadsheetId(spreadsheetInput, sheetName)}
                   disabled={saving}
                 >
                   {saving ? <Loader2 className="size-3.5 animate-spin" /> : 'Guardar'}

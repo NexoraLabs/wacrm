@@ -9,6 +9,28 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.23.2] — 2026-07-26
+
+### Fixed
+
+- **Re-picking a product's Google Sheet via the file picker could
+  silently reset its tab name back to the hardcoded "Orders"
+  default**, clobbering a merchant's real (often locale-specific,
+  e.g. "Hoja 1") tab name — the Picker widget only ever returns a
+  spreadsheet id, never a tab name, but the save call always sent
+  whatever the "Tab name" field's local state happened to hold at that
+  moment, defaulting to "Orders" whenever that state hadn't loaded
+  yet (or had just been reset by a disconnect). Every completed order
+  then failed with "Sheet tab not found" until someone noticed and
+  corrected it by hand — this is the third time this exact mismatch
+  class has hit a real account. `POST /api/products/[id]/google-sheet`
+  now auto-detects the spreadsheet's actual first tab
+  (`getFirstSheetTitle`, `src/lib/google-sheets/client.ts`) whenever no
+  explicit tab name is given, instead of guessing; the Picker flow
+  (`product-sheet-section.tsx`) no longer sends its local tab-name
+  state at all, only the manual paste-URL flow does (where the
+  merchant actually typed it).
+
 ## [0.23.1] — 2026-07-26
 
 ### Fixed

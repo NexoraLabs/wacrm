@@ -82,6 +82,33 @@ export async function updateSheetValues(
 }
 
 /**
+ * The spreadsheet's actual first tab name (by sheet index, not
+ * creation order) — used to auto-detect the right tab instead of
+ * guessing a hardcoded default. Google's own default first-tab name
+ * depends on the spreadsheet's locale ("Sheet1" in English, "Hoja 1"
+ * in Spanish, etc.), so a fixed guess is wrong for a large fraction of
+ * real merchants; this reads the true value directly.
+ */
+export async function getFirstSheetTitle(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<string | null> {
+  const res = await authedFetch(
+    accessToken,
+    `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}?fields=${encodeURIComponent('sheets.properties.title,sheets.properties.index')}`
+  );
+  const data = (await res.json()) as {
+    sheets?: { properties?: { title?: string; index?: number } }[];
+  };
+  const sheets = data.sheets ?? [];
+  if (sheets.length === 0) return null;
+  const first = sheets.reduce((a, b) =>
+    (a.properties?.index ?? 0) <= (b.properties?.index ?? 0) ? a : b
+  );
+  return first.properties?.title ?? null;
+}
+
+/**
  * Appends rows after the last row with data in `range` — the correct
  * primitive for an order log: it never touches existing rows, unlike
  * `updateSheetValues` (which overwrites a fixed range).
