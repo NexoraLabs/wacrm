@@ -12,7 +12,12 @@
 
 import { NextResponse } from "next/server";
 
-import { getCurrentAccount, toErrorResponse } from "@/lib/auth/account";
+import {
+  ForbiddenError,
+  UnauthorizedError,
+  getCurrentAccount,
+  toErrorResponse,
+} from "@/lib/auth/account";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
 import { exportOrderRow } from "@/lib/google-sheets/export-order";
 import type { ExportOrderNodeConfig, FlowRunRow } from "@/lib/flows/types";
@@ -128,6 +133,9 @@ export async function POST(request: Request, { params }: Params) {
 
     return NextResponse.json({ success: true });
   } catch (err) {
+    if (err instanceof UnauthorizedError || err instanceof ForbiddenError) {
+      return toErrorResponse(err);
+    }
     if (err instanceof Error) {
       console.error("[POST /api/conversations/[id]/register-order]:", err.message);
       return NextResponse.json(
