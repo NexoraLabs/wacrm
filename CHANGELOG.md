@@ -9,6 +9,23 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.23.0] — 2026-07-26
+
+### Added
+
+- **Manual "Registrar pedido" action in the Inbox** (contact sidebar),
+  for orders closed directly in the chat instead of through a
+  keyword-triggered checkout flow — a real, common pattern where an
+  agent (human or otherwise) sends the shipping-info template by hand
+  and the customer replies with their data, none of which previously
+  ever reached the merchant's Google Sheet. Opens a small form
+  (product, quantity, address/city/department/neighborhood, prefilled
+  from the contact's own record) and posts to the new
+  `POST /api/conversations/[id]/register-order`, which reuses the
+  flow engine's own `exportOrderRow` — same sheet row shape as the
+  automated checkout, just built from a synthesized one-off run
+  instead of a real `flow_runs` row.
+
 ## [0.22.9] — 2026-07-26
 
 ### Fixed

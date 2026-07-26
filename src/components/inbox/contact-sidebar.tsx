@@ -15,16 +15,19 @@ import {
   DollarSign,
   StickyNote,
   Plus,
+  PackageCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
+import { RegisterOrderDialog } from "./register-order-dialog";
 
 interface ContactSidebarProps {
   contact: Contact | null;
+  conversationId?: string | null;
 }
 
-export function ContactSidebar({ contact }: ContactSidebarProps) {
+export function ContactSidebar({ contact, conversationId }: ContactSidebarProps) {
   const { accountId } = useAuth();
   const [copied, setCopied] = useState(false);
   const [deals, setDeals] = useState<Deal[]>([]);
@@ -32,6 +35,7 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
+  const [registerOrderOpen, setRegisterOrderOpen] = useState(false);
 
   const fetchContactData = useCallback(async () => {
     if (!contact) return;
@@ -174,6 +178,18 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
             )}
           </div>
 
+          {conversationId && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-3 w-full border-primary/30 text-primary hover:bg-primary/10"
+              onClick={() => setRegisterOrderOpen(true)}
+            >
+              <PackageCheck className="h-4 w-4" />
+              Registrar pedido
+            </Button>
+          )}
+
           {/* Divider */}
           <div className="my-4 border-t border-border" />
 
@@ -294,6 +310,15 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
           </div>
         </div>
       </ScrollArea>
+
+      {conversationId && (
+        <RegisterOrderDialog
+          open={registerOrderOpen}
+          onOpenChange={setRegisterOrderOpen}
+          conversationId={conversationId}
+          contact={contact}
+        />
+      )}
     </div>
   );
 }
