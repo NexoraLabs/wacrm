@@ -9,6 +9,24 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.23.1] — 2026-07-26
+
+### Fixed
+
+- **"Registrar pedido" (v0.23.0) had no name/phone fields and required
+  retyping data the customer already gave in chat.** The form now
+  includes editable Nombre/Celular fields (previously silently pulled
+  straight from the contact record, which is often just a WhatsApp
+  profile name or blank), and auto-fills every field — name, phone,
+  address, city, department, neighborhood, quantity — by running an
+  AI extraction over the whole conversation on open
+  (`src/lib/google-sheets/extract-order-fields.ts`, new
+  `GET /api/conversations/[id]/register-order`). Falls back to the
+  contact row's own fields when no AI is configured or extraction
+  fails. `exportOrderRow` now accepts an optional name/phone override
+  so the sheet can reflect what the customer actually typed without
+  ever touching the contact's real WhatsApp phone number.
+
 ## [0.23.0] — 2026-07-26
 
 ### Added

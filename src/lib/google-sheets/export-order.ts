@@ -112,7 +112,17 @@ function findColumnIndex(headers: string[], field: OrderField): number {
 export async function exportOrderRow(
   db: SupabaseClient,
   run: FlowRunRow,
-  cfg: ExportOrderNodeConfig
+  cfg: ExportOrderNodeConfig,
+  /**
+   * Optional name/phone overrides — the manual "Registrar pedido"
+   * action (an order closed by chat, not the automated checkout) lets
+   * an agent correct these, since a customer's WhatsApp profile name
+   * (or the number they typed in their shipping details) often
+   * doesn't match what they actually go by. The automated flow's own
+   * `export_order` node never passes this — it keeps reading straight
+   * from the contact row, unchanged.
+   */
+  overrides?: { name?: string; phone?: string },
 ): Promise<void> {
   const { data: sheetConfig, error: sheetConfigError } = await db
     .from('product_sheet_configs')
@@ -147,8 +157,8 @@ export async function exportOrderRow(
 
   const values: Record<OrderField, string> = {
     timestamp: formatBogotaTimestamp(new Date()),
-    name: contact?.name ?? '',
-    phone: contact?.phone ?? '',
+    name: overrides?.name?.trim() || contact?.name || '',
+    phone: overrides?.phone?.trim() || contact?.phone || '',
     address: readVar(cfg.address_var_key),
     city: readVar(cfg.city_var_key),
     department: readVar(cfg.department_var_key),

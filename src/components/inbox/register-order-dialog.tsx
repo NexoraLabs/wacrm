@@ -55,14 +55,21 @@ export function RegisterOrderDialog({
   const [loadingProducts, setLoadingProducts] = useState(true);
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("1");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [city, setCity] = useState("");
   const [department, setDepartment] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [loadingPrefill, setLoadingPrefill] = useState(false);
 
   useEffect(() => {
     if (!open) return;
+    // Fast baseline from the contact row so the form isn't empty while
+    // the AI prefill call (below) is still in flight.
+    setName(contact.name ?? "");
+    setPhone(contact.phone ?? "");
     setAddress(contact.address ?? "");
     setCity(contact.city ?? "");
     setDepartment(contact.department ?? "");
@@ -100,6 +107,39 @@ export function RegisterOrderDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, contact.id]);
 
+  // Best-effort AI prefill: reads the whole conversation and pulls out
+  // whatever shipping/order data the customer already gave in chat, so
+  // the agent doesn't have to retype what's already on screen above.
+  // Falls back to (and never clobbers past) the contact-row baseline
+  // set in the effect above when this fails or an AI isn't configured.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    (async () => {
+      setLoadingPrefill(true);
+      try {
+        const res = await fetch(`/api/conversations/${conversationId}/register-order`);
+        if (cancelled || !res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.name) setName(data.name);
+        if (data.phone) setPhone(data.phone);
+        if (data.address) setAddress(data.address);
+        if (data.city) setCity(data.city);
+        if (data.department) setDepartment(data.department);
+        if (data.neighborhood) setNeighborhood(data.neighborhood);
+        if (data.quantity) setQuantity(data.quantity);
+      } catch (err) {
+        console.error("Failed to prefill order fields from conversation:", err);
+      } finally {
+        if (!cancelled) setLoadingPrefill(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open, conversationId]);
+
   async function handleSubmit() {
     if (!productId || !address.trim()) return;
     setSubmitting(true);
@@ -110,6 +150,8 @@ export function RegisterOrderDialog({
         body: JSON.stringify({
           productId,
           quantity: quantity.trim() || "1",
+          name: name.trim(),
+          phone: phone.trim(),
           address: address.trim(),
           city: city.trim(),
           department: department.trim(),
@@ -140,6 +182,12 @@ export function RegisterOrderDialog({
           <DialogTitle className="flex items-center gap-2 text-popover-foreground">
             <PackageCheck className="h-4 w-4 text-primary" />
             Registrar pedido
+            {loadingPrefill && (
+              <span className="flex items-center gap-1 text-xs font-normal text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Autocompletando desde el chat...
+              </span>
+            )}
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">
             Para cuando la venta se cerró directamente en el chat, sin pasar
@@ -149,6 +197,27 @@ export function RegisterOrderDialog({
         </DialogHeader>
 
         <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label className="text-xs text-popover-foreground">Nombre</Label>
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Nombre completo del cliente"
+                className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs text-popover-foreground">Celular</Label>
+              <Input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="Número de contacto"
+                className="border-border bg-muted text-foreground placeholder:text-muted-foreground"
+              />
+            </div>
+          </div>
+
           <div className="space-y-1">
             <Label className="text-xs text-popover-foreground">Producto</Label>
             {loadingProducts ? (

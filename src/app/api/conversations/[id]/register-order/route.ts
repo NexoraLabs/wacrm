@@ -20,9 +20,64 @@ import {
 } from "@/lib/auth/account";
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from "@/lib/rate-limit";
 import { exportOrderRow } from "@/lib/google-sheets/export-order";
+import { extractOrderFieldsFromConversation } from "@/lib/google-sheets/extract-order-fields";
 import type { ExportOrderNodeConfig, FlowRunRow } from "@/lib/flows/types";
 
 type Params = { params: Promise<{ id: string }> };
+
+/**
+ * Prefill data for the "Registrar pedido" dialog — reads the contact
+ * row AND runs an AI extraction over the whole conversation (see
+ * extractOrderFieldsFromConversation), since customers routinely give
+ * their real name/phone/address across several chat messages while a
+ * human closes the sale, none of which lives on the contact record
+ * itself. AI values win when present; contact fields are the fallback
+ * (including when there's no AI configured at all).
+ */
+export async function GET(_request: Request, { params }: Params) {
+  try {
+    const ctx = await getCurrentAccount();
+    const { id: conversationId } = await params;
+
+    const { data: conversation, error: convError } = await ctx.supabase
+      .from("conversations")
+      .select("id, contact_id")
+      .eq("id", conversationId)
+      .eq("account_id", ctx.accountId)
+      .maybeSingle();
+    if (convError || !conversation) {
+      return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
+    }
+
+    const { data: contact } = await ctx.supabase
+      .from("contacts")
+      .select("name, phone, address, city, department, neighborhood")
+      .eq("id", conversation.contact_id)
+      .maybeSingle();
+
+    const extracted = await extractOrderFieldsFromConversation(
+      ctx.supabase,
+      ctx.accountId,
+      conversationId,
+    );
+
+    return NextResponse.json({
+      name: extracted.name || contact?.name || "",
+      phone: extracted.phone || contact?.phone || "",
+      address: extracted.address || contact?.address || "",
+      city: extracted.city || contact?.city || "",
+      department: extracted.department || contact?.department || "",
+      neighborhood: extracted.neighborhood || contact?.neighborhood || "",
+      quantity: extracted.quantity || "1",
+    });
+  } catch (err) {
+    if (err instanceof UnauthorizedError || err instanceof ForbiddenError) {
+      return toErrorResponse(err);
+    }
+    console.error("[GET /api/conversations/[id]/register-order]:", err);
+    return NextResponse.json({ error: "Failed to load order prefill data" }, { status: 500 });
+  }
+}
 
 export async function POST(request: Request, { params }: Params) {
   try {
@@ -38,6 +93,8 @@ export async function POST(request: Request, { params }: Params) {
     const body = (await request.json().catch(() => null)) as {
       productId?: unknown;
       quantity?: unknown;
+      name?: unknown;
+      phone?: unknown;
       address?: unknown;
       city?: unknown;
       department?: unknown;
@@ -53,6 +110,8 @@ export async function POST(request: Request, { params }: Params) {
       );
     }
     const quantity = typeof body?.quantity === "string" ? body.quantity.trim() : "1";
+    const name = typeof body?.name === "string" ? body.name.trim() : "";
+    const phone = typeof body?.phone === "string" ? body.phone.trim() : "";
     const city = typeof body?.city === "string" ? body.city.trim() : "";
     const department =
       typeof body?.department === "string" ? body.department.trim() : "";
@@ -129,7 +188,7 @@ export async function POST(request: Request, { params }: Params) {
       next_node_key: "",
     };
 
-    await exportOrderRow(ctx.supabase, fakeRun, cfg);
+    await exportOrderRow(ctx.supabase, fakeRun, cfg, { name, phone });
 
     return NextResponse.json({ success: true });
   } catch (err) {
