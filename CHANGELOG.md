@@ -9,6 +9,58 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.24.0] — 2026-07-28
+
+**Migration required:** `supabase/migrations/050_ai_config_owner_notification_phone.sql`
+
+### Added
+
+- **Optional WhatsApp alert to the account owner when the AI gives up.**
+  Settings → AI Assistant now has a phone number field: when the auto-reply
+  bot hands off, hits its reply cap, or blocks a fabricated order
+  confirmation, the owner gets a free-form WhatsApp text (sent from the
+  account's own connected number) in addition to the existing in-app
+  notification bell — the bell alone meant a customer could sit unanswered
+  for hours if nobody happened to have the CRM open. Only delivers within
+  Meta's 24h customer-service window with the owner's number (shown as a
+  caveat in the settings UI); a Meta-approved template for guaranteed
+  delivery is a possible follow-up. `src/lib/ai/notify-owner-whatsapp.ts`,
+  wired into `dispatchInboundToAiReply` (`auto-reply.ts`) and
+  `generateAiAnswer`'s fabrication guard (`flows/engine.ts`).
+
+### Fixed
+
+- **A flow's open-ended Q&A loop (`collect_input` → `ai_reply` looping
+  back to the same `collect_input` node) could spam a customer with
+  dozens of AI-generated replies in under two minutes with zero new
+  input from them.** `collect_input`'s "skip re-asking if this field
+  already has a value" shortcut — meant for the multi-field extractor
+  pre-filling a *later* field from one message — doesn't distinguish
+  that from a loop-back to the *same* node: once the var was set from
+  the customer's first real reply, every later pass through the node
+  found it still set and skipped waiting, racing through the loop as
+  fast as the LLM responded. Confirmed live: ~90 messages to one
+  customer in under 2 minutes, only stopped by an eventual provider
+  rate-limit error. `advanceFromNodeKey` now only allows the skip on a
+  node's first visit per advance pass — a repeat visit (a genuine
+  cycle) always re-prompts and suspends. `src/lib/flows/engine.ts`.
+- **The anti-fabrication regex could miss a real fabricated order
+  confirmation** when the model inserted descriptive text between
+  "pedido" and the confirmation verb (e.g. "pedido *de 2 unidades del
+  Limpiavidrios Magnético* queda registrado") — the old proximity cap
+  was 25 characters, too narrow for that gap. Widened to 80 characters
+  and switched to a newline-tolerant match. Confirmed against the exact
+  text that reached a real customer in production.
+  `src/lib/ai/defaults.ts`.
+- **The keyword-triggered checkout flow still didn't match how customers
+  actually reply to the price message** ("2 unidades", "solo uno", "la
+  promo", etc.) even after 0.22.9's broadening — real customers kept
+  falling through to the AI, which correctly hands off rather than
+  taking the order itself, but then sat unanswered if nobody was
+  watching the Inbox. Broadened the trigger's keyword list further
+  (data-only change, applied directly to the affected account's flow
+  row, no migration).
+
 ## [0.23.2] — 2026-07-26
 
 ### Fixed

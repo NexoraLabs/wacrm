@@ -5,7 +5,7 @@ import { generateAnthropic } from './providers/anthropic'
 import { generateOpenRouter } from './providers/openrouter'
 
 export interface GenerateArgs {
-  config: AiConfig
+  config: Omit<AiConfig, 'ownerNotificationPhone'>
   /** Fully-built system prompt (see `buildSystemPrompt`). */
   systemPrompt: string
   /** Recent conversation turns, oldest first. */

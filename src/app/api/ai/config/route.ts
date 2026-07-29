@@ -6,6 +6,7 @@ import {
 } from '@/lib/auth/account'
 import { checkRateLimit, rateLimitResponse, RATE_LIMITS } from '@/lib/rate-limit'
 import { encrypt, decrypt } from '@/lib/whatsapp/encryption'
+import { sanitizePhoneForMeta, isValidE164 } from '@/lib/whatsapp/phone-utils'
 import { validateAiCredentials } from '@/lib/ai/validate'
 import { embedTexts } from '@/lib/ai/embeddings'
 import { AiError, type AiProvider } from '@/lib/ai/types'
@@ -30,7 +31,7 @@ export async function GET() {
       // `api_key` is selected only to derive `has_key` — it is stripped
       // out below and never returned to the client.
       .select(
-        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key, embeddings_api_key',
+        'provider, model, system_prompt, is_active, auto_reply_enabled, auto_reply_max_per_conversation, api_key, embeddings_api_key, owner_notification_phone',
       )
       .eq('account_id', accountId)
       .maybeSingle()
@@ -94,6 +95,17 @@ export async function POST(request: Request) {
     let maxPer = Number(body.auto_reply_max_per_conversation)
     if (!Number.isFinite(maxPer)) maxPer = 3
     maxPer = Math.min(20, Math.max(1, Math.floor(maxPer)))
+
+    const rawOwnerPhone =
+      typeof body.owner_notification_phone === 'string'
+        ? body.owner_notification_phone.trim()
+        : ''
+    if (rawOwnerPhone && !isValidE164(rawOwnerPhone)) {
+      return bad('Owner notification phone must be a valid phone number (e.g. +57 300 1234567).')
+    }
+    const ownerNotificationPhone = rawOwnerPhone
+      ? sanitizePhoneForMeta(rawOwnerPhone)
+      : null
 
     const rawKey = typeof body.api_key === 'string' ? body.api_key.trim() : ''
 
@@ -185,6 +197,7 @@ export async function POST(request: Request) {
       is_active: isActive,
       auto_reply_enabled: autoReplyEnabled,
       auto_reply_max_per_conversation: maxPer,
+      owner_notification_phone: ownerNotificationPhone,
     }
     if (rawEmbeddingsKey) {
       shared.embeddings_api_key = encrypt(rawEmbeddingsKey)

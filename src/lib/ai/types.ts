@@ -25,6 +25,10 @@ export interface AiConfig {
    *  knowledge base is embedded and semantic retrieval turns on; when
    *  null, retrieval falls back to lexical full-text search. */
   embeddingsApiKey: string | null
+  /** Owner's personal WhatsApp number to alert (free-form text, from the
+   *  account's own connected number) when the AI hands off or hits its
+   *  reply cap. Null when notification-by-WhatsApp isn't set up. */
+  ownerNotificationPhone: string | null
 }
 
 /** A single conversation turn in the shape both providers accept. */

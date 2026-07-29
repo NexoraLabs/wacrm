@@ -40,9 +40,15 @@ export const HANDOFF_SENTINEL = '[[HANDOFF]]'
  */
 const ORDER_CONFIRMATION_PATTERNS: RegExp[] = [
   /confirm\w*\s+(que\s+)?(el\s+|tu\s+|su\s+)?pedido/i,
-  /pedido\s+.{0,25}\b(qued[oa]|est[aá]|fue|ha\s+sido)\s+.{0,15}\bregistrad/i,
-  /pedido\s+.{0,25}\bregistrad/i,
-  /pedido\s+.{0,25}\bconfirmad/i,
+  // Gaps use [\s\S] (not `.`) so a line break between "pedido" and the
+  // confirmation verb doesn't hide a match, and a wide {0,80} cap so the
+  // model inserting descriptive text ("pedido de 2 unidades del Producto
+  // X") between the two doesn't slip past — confirmed missed in
+  // production with a ~40-char gap under the old {0,25} cap.
+  /pedido[\s\S]{0,80}\b(qued[oa]|est[aá]|fue|ha\s+sido)\s+[\s\S]{0,20}\bregistrad/i,
+  /pedido[\s\S]{0,80}\bregistrad/i,
+  /pedido[\s\S]{0,80}\bconfirmad/i,
+  /\b(qued[oa]|est[aá]|fue|ha\s+sido)\s+[\s\S]{0,20}\bregistrad\w*[\s\S]{0,80}\bpedido/i,
   /\border\s+(is\s+)?(confirmed|registered|placed)\b/i,
 ]
 

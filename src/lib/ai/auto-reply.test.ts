@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   retrieveKnowledge: vi.fn(),
   generateReply: vi.fn(),
   engineSendText: vi.fn(),
+  notifyOwnerViaWhatsApp: vi.fn(),
   state: {
     conv: null as Record<string, unknown> | null,
     autoResponders: [] as { id: string; trigger_type: string; trigger_config: unknown }[],
@@ -22,6 +23,9 @@ vi.mock('./context', () => ({ buildConversationContext: h.buildConversationConte
 vi.mock('./knowledge', () => ({ retrieveKnowledge: h.retrieveKnowledge }))
 vi.mock('./generate', () => ({ generateReply: h.generateReply }))
 vi.mock('@/lib/flows/meta-send', () => ({ engineSendText: h.engineSendText }))
+vi.mock('./notify-owner-whatsapp', () => ({
+  notifyOwnerViaWhatsApp: h.notifyOwnerViaWhatsApp,
+}))
 vi.mock('./admin-client', () => ({
   supabaseAdmin: () => ({
     from: (table: string) => {
@@ -77,6 +81,7 @@ function aiConfig(overrides: Partial<AiConfig> = {}): AiConfig {
     autoReplyEnabled: true,
     autoReplyMaxPerConversation: 3,
     embeddingsApiKey: null,
+    ownerNotificationPhone: null,
     ...overrides,
   }
 }
@@ -228,6 +233,20 @@ describe('dispatchInboundToAiReply — handoff', () => {
     // HANDOFF_SENTINEL — this must still be caught and blocked.
     h.generateReply.mockResolvedValue({
       text: 'Perfecto, confirmo que el pedido de 1 unidad está listo. Tu pedido está registrado y será enviado pronto.',
+      handoff: false,
+    })
+    await dispatchInboundToAiReply(ARGS)
+    expect(h.engineSendText).not.toHaveBeenCalled()
+    expect(h.state.updatePayload).toEqual({ ai_autoreply_disabled: true })
+    expect(h.state.rpcCalls).toHaveLength(0)
+  })
+
+  it('forces a handoff when the fabricated confirmation has descriptive text between "pedido" and "registrado"', async () => {
+    // Regression: this exact text reached a real customer in production —
+    // the old {0,25}-char gap cap didn't reach past "de 2 unidades del
+    // Limpiavidrios Magnético" to find "registrado".
+    h.generateReply.mockResolvedValue({
+      text: 'Gracias, Flor, por enviar tus datos. Tu pedido de 2 unidades del Limpiavidrios Magnético queda registrado y será alistado para el envío.',
       handoff: false,
     })
     await dispatchInboundToAiReply(ARGS)

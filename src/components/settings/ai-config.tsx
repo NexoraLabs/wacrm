@@ -74,6 +74,7 @@ export function AiConfig() {
   const [isActive, setIsActive] = useState(false);
   const [autoReplyEnabled, setAutoReplyEnabled] = useState(false);
   const [maxPerConversation, setMaxPerConversation] = useState(3);
+  const [ownerNotificationPhone, setOwnerNotificationPhone] = useState('');
 
   // Guard keyed on the account (not a bare boolean) so an in-place
   // account switch — ownership transfer, multi-account membership —
@@ -103,6 +104,7 @@ export function AiConfig() {
         setIsActive(data.is_active);
         setAutoReplyEnabled(data.auto_reply_enabled);
         setMaxPerConversation(data.auto_reply_max_per_conversation ?? 3);
+        setOwnerNotificationPhone(data.owner_notification_phone ?? '');
         setHasStoredKey(Boolean(data.has_key));
         setApiKey(data.has_key ? MASKED_KEY : '');
         setKeyEdited(false);
@@ -159,6 +161,7 @@ export function AiConfig() {
     is_active: isActive,
     auto_reply_enabled: autoReplyEnabled,
     auto_reply_max_per_conversation: maxPerConversation,
+    owner_notification_phone: ownerNotificationPhone.trim() || null,
   });
 
   const handleTest = async () => {
@@ -514,6 +517,32 @@ export function AiConfig() {
                 disabled={disabled || !autoReplyEnabled}
                 className="w-20"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="ai-owner-phone">
+                Avisarme por WhatsApp cuando la IA necesite un humano{' '}
+                <span className="font-normal text-muted-foreground">
+                  (opcional)
+                </span>
+              </Label>
+              <Input
+                id="ai-owner-phone"
+                type="tel"
+                value={ownerNotificationPhone}
+                onChange={(e) => setOwnerNotificationPhone(e.target.value)}
+                placeholder="+57 300 1234567"
+                disabled={disabled}
+                className="max-w-xs"
+              />
+              <p className="text-xs text-muted-foreground">
+                Cuando la IA se rinde (cede a un humano o llega al máximo de
+                respuestas), además de la notificación en la campanita, te
+                escribimos un WhatsApp a este número desde tu propio número
+                de negocio. Aviso: WhatsApp solo entrega texto libre si este
+                número le ha escrito al bot en las últimas 24h — si la
+                ventana está cerrada, el aviso puede no llegar.
+              </p>
             </div>
           </CardContent>
         </Card>

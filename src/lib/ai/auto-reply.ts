@@ -10,15 +10,17 @@ import { latestUserMessage } from './query'
 import { engineSendText } from '@/lib/flows/meta-send'
 import { showTypingIndicator } from '@/lib/whatsapp/typing-indicator'
 import { triggerMatches } from '@/lib/automations/engine'
+import { notifyOwnerViaWhatsApp } from './notify-owner-whatsapp'
 import type { Automation } from '@/types'
 
 /**
  * A conversation just went dark on auto-reply (handoff, empty model
  * output, or the reply cap was hit) — the customer may be mid-purchase
  * with nobody now watching the thread. Alert the account owner via the
- * in-app notification bell rather than leaving it to be discovered by
- * chance. Best-effort: a failed notification must not surface as a
- * dispatch failure.
+ * in-app notification bell — and, if they've set a number, a WhatsApp
+ * text too (see notify-owner-whatsapp.ts) — rather than leaving it to be
+ * discovered by chance. Best-effort: a failed notification must not
+ * surface as a dispatch failure.
  */
 async function notifyOwnerAutoReplyStopped(
   db: SupabaseClient,
@@ -30,6 +32,10 @@ async function notifyOwnerAutoReplyStopped(
     reason: 'handoff' | 'reply_cap_reached'
   },
 ): Promise<void> {
+  const body =
+    args.reason === 'handoff'
+      ? 'El asistente no pudo resolver la conversación con confianza y se detuvo. Revísala en el Inbox.'
+      : 'Se alcanzó el máximo de respuestas automáticas configurado para esta cuenta. El cliente puede seguir esperando — revisa el Inbox.'
   try {
     await db.from('notifications').insert({
       account_id: args.accountId,
@@ -42,14 +48,15 @@ async function notifyOwnerAutoReplyStopped(
         args.reason === 'handoff'
           ? '🤝 La IA necesita que tomes esta conversación'
           : '⏸️ La IA llegó al límite de respuestas en esta conversación',
-      body:
-        args.reason === 'handoff'
-          ? 'El asistente no pudo resolver la conversación con confianza y se detuvo. Revísala en el Inbox.'
-          : 'Se alcanzó el máximo de respuestas automáticas configurado para esta cuenta. El cliente puede seguir esperando — revisa el Inbox.',
+      body,
     })
   } catch (err) {
     console.error('[ai auto-reply] failed to notify owner:', err)
   }
+  await notifyOwnerViaWhatsApp(db, {
+    accountId: args.accountId,
+    text: `⚠️ ${body}`,
+  })
 }
 
 interface DispatchArgs {

@@ -47,6 +47,7 @@ import { generateReply } from "@/lib/ai/generate";
 import { retrieveKnowledge } from "@/lib/ai/knowledge";
 import { resolveProductPromptContext } from "@/lib/ai/product-context";
 import { latestUserMessage } from "@/lib/ai/query";
+import { notifyOwnerViaWhatsApp } from "@/lib/ai/notify-owner-whatsapp";
 import { showTypingIndicator } from "@/lib/whatsapp/typing-indicator";
 import { resolveWhatsappConfigForConversation } from "@/lib/whatsapp/resolve-config";
 import { exportOrderRow } from "@/lib/google-sheets/export-order";
@@ -869,6 +870,9 @@ async function notifyOwnerOfBlockedFabrication(
       .update({ status: "pending", updated_at: new Date().toISOString() })
       .eq("id", run.conversation_id);
   }
+  const body =
+    "El asistente iba a confirmar un pedido sin haberlo registrado " +
+    "realmente — se bloqueó el mensaje antes de enviarlo. Revísala en el Inbox.";
   try {
     await db.from("notifications").insert({
       account_id: run.account_id,
@@ -878,9 +882,7 @@ async function notifyOwnerOfBlockedFabrication(
       contact_id: run.contact_id,
       actor_user_id: null,
       title: "🤝 La IA necesita que tomes esta conversación",
-      body:
-        "El asistente iba a confirmar un pedido sin haberlo registrado " +
-        "realmente — se bloqueó el mensaje antes de enviarlo. Revísala en el Inbox.",
+      body,
     });
   } catch (err) {
     console.error(
@@ -888,6 +890,7 @@ async function notifyOwnerOfBlockedFabrication(
       err,
     );
   }
+  await notifyOwnerViaWhatsApp(db, { accountId: run.account_id, text: `⚠️ ${body}` });
 }
 
 /**
@@ -1066,6 +1069,20 @@ async function advanceFromNodeKey(
   metaMessageId: string,
 ): Promise<{ outcome: "advanced" | "completed" | "handed_off" }> {
   let currentKey: string | null = startNodeKey;
+  // A `collect_input` node whose var already has a value skips straight
+  // to `next_node_key` (see below) — meant for the multi-field extractor
+  // pre-filling a LATER field from the same message. But a flow can also
+  // loop an auto-advancing node (e.g. `ai_reply`) back into the SAME
+  // `collect_input` node (an open-ended Q&A pattern: ask → answer → ask
+  // again). Without this guard, the second visit finds the var still set
+  // from the first real reply and skips waiting again — and forever
+  // after, since nothing ever clears it — turning the loop-back into a
+  // tight, unbounded resend of the AI's answer with no new customer
+  // input between sends (confirmed in production: ~90 messages to one
+  // customer in under 2 minutes). Only the FIRST visit to a given
+  // collect_input node in this pass may use the pre-filled value; a
+  // repeat visit always re-prompts and genuinely suspends.
+  const collectInputVisitedThisPass = new Set<string>();
   // Defensive cap — if a flow has a cycle (which the validator
   // SHOULD catch but doesn't yet in v1), we bail rather than loop.
   for (let safety = 0; safety < 64; safety += 1) {
@@ -1150,11 +1167,20 @@ async function advanceFromNodeKey(
     }
     if (node.node_type === "collect_input") {
       const cfg = node.config as unknown as CollectInputNodeConfig;
+      const revisitedThisPass = collectInputVisitedThisPass.has(node.node_key);
+      collectInputVisitedThisPass.add(node.node_key);
       // Already has a value — most likely the multi-field extractor
       // (see tryExtractMultipleFields) pulled it out of an earlier
-      // message in this same chain. Don't re-ask, just move on.
+      // message in this same chain. Don't re-ask, just move on. Only
+      // applies on the first visit this pass — see
+      // `collectInputVisitedThisPass` above for why a loop-back must
+      // always re-prompt instead.
       const existing = run.vars[cfg.var_key];
-      if (typeof existing === "string" && existing.trim().length > 0) {
+      if (
+        !revisitedThisPass &&
+        typeof existing === "string" &&
+        existing.trim().length > 0
+      ) {
         currentKey = cfg.next_node_key;
         continue;
       }
