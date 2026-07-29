@@ -9,6 +9,19 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.24.2] — 2026-07-29
+
+### Added
+
+- **Flows can now greet with a live time-of-day salutation.** Any
+  `send_message`/`send_media` caption/`collect_input` prompt text can
+  include `{{vars.greeting}}`, which resolves at send time to "Buenos
+  días" / "Buenas tardes" / "Buenas noches" based on the real clock in
+  `America/Bogota` — no flow-builder wiring or captured variable
+  needed. `interpolateVars` in `src/lib/flows/engine.ts`, backed by
+  the new `src/lib/timezone.ts`. Applied to the Limpiavidrios welcome
+  flow's `welcome_msg` node (account `88dd8811...`) as the first use.
+
 ## [0.24.1] — 2026-07-29
 
 ### Fixed

@@ -33,6 +33,7 @@
  */
 
 import { supabaseAdmin } from "./admin-client";
+import { businessGreeting } from "@/lib/timezone";
 import {
   engineSendInteractiveButtons,
   engineSendInteractiveList,
@@ -821,10 +822,20 @@ async function evaluateConditionNode(
  * prompt text so a captured `name` can show up in the next prompt
  * ("Thanks {{vars.name}}, what's your email?"). Missing vars render as
  * empty string — the same behavior as the automations engine.
+ *
+ * `{{vars.greeting}}` is special-cased: unless a real captured var
+ * happens to be named `greeting`, it's computed live from the current
+ * time in `America/Bogota` ("Buenos días"/"Buenas tardes"/"Buenas
+ * noches") rather than reading `vars` — lets a welcome message greet
+ * correctly without any flow-builder wiring, and without ever going
+ * stale the way a captured/stored value would.
  */
 function interpolateVars(template: string, vars: Record<string, unknown>): string {
   if (!template) return "";
   return template.replace(/\{\{vars\.([a-zA-Z0-9_]+)\}\}/g, (_, key) => {
+    if (key === "greeting" && vars.greeting === undefined) {
+      return businessGreeting(new Date());
+    }
     const v = vars[key];
     return v === undefined || v === null ? "" : String(v);
   });

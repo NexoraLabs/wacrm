@@ -18,6 +18,7 @@ import type {
   AssignConversationStepConfig,
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
+import { businessMinutesOfDay } from '@/lib/timezone'
 import { engineSendText, engineSendTemplate, engineSendMedia } from './meta-send'
 import { loadAiConfig } from '@/lib/ai/config'
 import { buildConversationContext } from '@/lib/ai/context'
@@ -710,22 +711,6 @@ export function triggerMatches(automation: Automation, ctx: AutomationContext | 
   })
 }
 
-/** Minutes since midnight in America/Bogota, regardless of the server's
- *  own timezone (Colombia has no DST, so a fixed offset would also
- *  work, but this stays correct if the server's TZ env var ever
- *  changes). */
-function bogotaMinutesOfDay(now: Date): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Bogota',
-    hour: 'numeric',
-    minute: 'numeric',
-    hourCycle: 'h23',
-  }).formatToParts(now)
-  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0)
-  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0)
-  return hour * 60 + minute
-}
-
 async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): Promise<boolean> {
   const db = supabaseAdmin()
   switch (cfg.subject) {
@@ -787,7 +772,7 @@ async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): P
       // in the middle of the night.
       const [from, to] = (cfg.operand ?? '').split('-')
       if (!from || !to) return false
-      const mins = bogotaMinutesOfDay(new Date())
+      const mins = businessMinutesOfDay(new Date())
       const parse = (s: string) => {
         const [h, m] = s.split(':').map(Number)
         return (h || 0) * 60 + (m || 0)
