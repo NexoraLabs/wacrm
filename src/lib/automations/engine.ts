@@ -710,6 +710,22 @@ export function triggerMatches(automation: Automation, ctx: AutomationContext | 
   })
 }
 
+/** Minutes since midnight in America/Bogota, regardless of the server's
+ *  own timezone (Colombia has no DST, so a fixed offset would also
+ *  work, but this stays correct if the server's TZ env var ever
+ *  changes). */
+function bogotaMinutesOfDay(now: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Bogota',
+    hour: 'numeric',
+    minute: 'numeric',
+    hourCycle: 'h23',
+  }).formatToParts(now)
+  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0)
+  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0)
+  return hour * 60 + minute
+}
+
 async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): Promise<boolean> {
   const db = supabaseAdmin()
   switch (cfg.subject) {
@@ -762,11 +778,16 @@ async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): P
     }
     case 'time_of_day': {
       // operand form "HH:mm-HH:mm" — true if now is within that window
-      // (supports over-midnight ranges like "18:00-09:00").
+      // (supports over-midnight ranges like "18:00-09:00"). Windows are
+      // authored by the (Colombian) business owner in their own local
+      // time, so we must read the clock in America/Bogota rather than
+      // the server's local timezone (UTC on EasyPanel) — comparing
+      // against server-local hours silently shifted every window by
+      // ~5h, e.g. flipping a "buenas noches" branch to "buenos días"
+      // in the middle of the night.
       const [from, to] = (cfg.operand ?? '').split('-')
       if (!from || !to) return false
-      const now = new Date()
-      const mins = now.getHours() * 60 + now.getMinutes()
+      const mins = bogotaMinutesOfDay(new Date())
       const parse = (s: string) => {
         const [h, m] = s.split(':').map(Number)
         return (h || 0) * 60 + (m || 0)

@@ -9,6 +9,20 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.24.1] — 2026-07-29
+
+### Fixed
+
+- **Automations' "Time of day" condition compared against the server's
+  UTC clock instead of the business's local (Colombia) time.** A
+  day/night greeting split built with a `time_of_day` Condition step
+  (e.g. "buenos días" vs. "buenas noches") could land on the wrong
+  branch for hours at a time — most noticeably in the early morning,
+  when the server's UTC hour already looked like daytime while it was
+  still night in Bogotá. `evaluateCondition`'s `time_of_day` case now
+  reads the clock via `Intl.DateTimeFormat` pinned to `America/Bogota`
+  instead of `Date.getHours()`. `src/lib/automations/engine.ts`.
+
 ## [0.24.0] — 2026-07-28
 
 **Migration required:** `supabase/migrations/050_ai_config_owner_notification_phone.sql`
