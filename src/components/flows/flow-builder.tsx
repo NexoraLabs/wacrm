@@ -574,6 +574,7 @@ function AddNodeButton({ onAdd }: { onAdd: (type: NodeType) => void }) {
     'send_message',
     'send_media',
     'collect_input',
+    'collect_payment_proof',
     'condition',
     'set_tag',
     'export_order',

@@ -9,6 +9,43 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.0] — 2026-07-30
+
+### Added
+
+- **New Flows node type: "Verify payment" (`collect_payment_proof`).**
+  Waits for the customer's next message to be an image, downloads it,
+  and asks a vision model (`analyzeReceiptImage`,
+  `src/lib/ai/receipt.ts`, OpenAI `gpt-4o-mini`, app-level key) whether
+  it plausibly looks like a valid Nequi/Bancolombia/Daviplata/Bre-B
+  payment receipt for the expected amount, then branches to a "valid"
+  or "invalid" node — invalid attempts just resend the prompt below a
+  configurable `max_attempts`, then force a handoff to a human so an
+  AI verdict is never the last word on real money. Built for a digital
+  product (video course) sold end-to-end over WhatsApp: pay by
+  transfer → send a receipt photo → get a Google Drive access link
+  automatically once verified. Required plumbing, all additive:
+  - `ParsedInbound` (`src/lib/flows/types.ts`) gained an `image` kind —
+    the webhook (`src/app/api/whatsapp/webhook/route.ts`) previously
+    coerced every inbound image to an empty text message for the Flows
+    engine, so it silently couldn't react to images at all.
+  - Migration `051_flow_nodes_payment_proof_type.sql` widens the
+    `flow_nodes.node_type` CHECK constraint (same drop+recreate
+    pattern as 041/048).
+  - Full builder support: canvas + list rendering, edit form, add-node
+    menu, save-time validator (`src/lib/flows/{edges,validate}.ts`,
+    `src/components/flows/*`).
+  - Fixed a latent gap found while wiring this up: the `tag_added`
+    automation trigger was fully defined (schema, validator, builder
+    UI) but never actually dispatched from anywhere, and
+    `triggerMatches` never checked *which* tag was added — so a
+    `tag_added` automation could never fire in practice. Both fixed in
+    `src/lib/automations/engine.ts` / `src/lib/flows/engine.ts`.
+  - Account `lbolanosalban@gmail.com` (`38c981c9-...`) is the first
+    (and so far only) use: its product/flow/automations were rebuilt
+    to sell a Windows maintenance/repair video course instead of the
+    prior physical product (Extensión de Grifo Ahorrador).
+
 ## [0.24.2] — 2026-07-29
 
 ### Added

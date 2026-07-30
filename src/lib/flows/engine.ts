@@ -51,10 +51,15 @@ import { latestUserMessage } from "@/lib/ai/query";
 import { notifyOwnerViaWhatsApp } from "@/lib/ai/notify-owner-whatsapp";
 import { showTypingIndicator } from "@/lib/whatsapp/typing-indicator";
 import { resolveWhatsappConfigForConversation } from "@/lib/whatsapp/resolve-config";
+import { getMediaUrl, downloadMedia } from "@/lib/whatsapp/meta-api";
+import { decrypt } from "@/lib/whatsapp/encryption";
+import { analyzeReceiptImage } from "@/lib/ai/receipt";
 import { exportOrderRow } from "@/lib/google-sheets/export-order";
+import { runAutomationsForTrigger } from "@/lib/automations/engine";
 import {
   type AiReplyNodeConfig,
   type CollectInputNodeConfig,
+  type CollectPaymentProofNodeConfig,
   type ConditionNodeConfig,
   type DispatchInboundInput,
   type DispatchInboundResult,
@@ -1241,6 +1246,41 @@ async function advanceFromNodeKey(
       }
       return { outcome: "advanced" };
     }
+    if (node.node_type === "collect_payment_proof") {
+      const cfg = node.config as unknown as CollectPaymentProofNodeConfig;
+      try {
+        const { whatsapp_message_id } = await engineSendText({
+          accountId: run.account_id,
+    userId: run.user_id,
+          conversationId: run.conversation_id!,
+          contactId: run.contact_id!,
+          text: interpolateVars(cfg.prompt_text, run.vars),
+        });
+        await logEvent(db, run.id, "message_sent", node.node_key, {
+          node_type: "collect_payment_proof",
+          whatsapp_message_id,
+        });
+      } catch (err) {
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "collect_payment_proof_prompt_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+        await endRun(db, run.id, "failed", "collect_payment_proof_prompt_failed");
+        return { outcome: "completed" };
+      }
+      const advanced = await advanceCurrentNodeKey(
+        db,
+        run.id,
+        run.current_node_key,
+        node.node_key,
+      );
+      if (!advanced) {
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "lost_race_during_advance",
+        });
+      }
+      return { outcome: "advanced" };
+    }
     if (node.node_type === "condition") {
       const cfg = node.config as unknown as ConditionNodeConfig;
       let branch: "true" | "false";
@@ -1274,6 +1314,24 @@ async function advanceFromNodeKey(
               { contact_id: run.contact_id!, tag_id: cfg.tag_id },
               { onConflict: "contact_id,tag_id" },
             );
+          // Fire any tag_added automations watching this tag — the flows
+          // engine previously never dispatched this trigger at all (only
+          // the webhook's new_message_received/keyword_match/etc. did),
+          // so a tag_added automation could never actually fire from a
+          // flow's set_tag node. Fire-and-forget, same convention as the
+          // webhook's automation dispatch — a slow/failing automation
+          // must not stall the customer's flow run.
+          runAutomationsForTrigger({
+            accountId: run.account_id,
+            triggerType: "tag_added",
+            contactId: run.contact_id,
+            context: {
+              tag_id: cfg.tag_id,
+              conversation_id: run.conversation_id ?? undefined,
+            },
+          }).catch((err) =>
+            console.error("[flows] tag_added automation dispatch failed:", err),
+          );
         } else {
           await db
             .from("contact_tags")
@@ -1593,7 +1651,9 @@ export async function dispatchInboundToFlows(
       const targetNodeKey =
         input.message.kind === "interactive_reply"
           ? findNodeKeyByReplyId(nodes, input.message.reply_id)
-          : findNodeKeyByText(nodes, input.message.text);
+          : input.message.kind === "text"
+            ? findNodeKeyByText(nodes, input.message.text)
+            : null;
       if (targetNodeKey) {
         const { data: flowRow } = await db
           .from("flows")
@@ -1716,6 +1776,158 @@ async function checkKeywordMediaTriggerNoActiveRun(
     return { consumed: true, outcome: "media_trigger_fired" };
   }
   return null;
+}
+
+/**
+ * Downloads the bytes of an inbound image so `collect_payment_proof`
+ * can hand them to the vision model. Two providers, two paths:
+ *   - QR/Baileys: `media_url` is already a directly-fetchable URL
+ *     (the webhook's `precomputedMediaUrl`) — plain fetch.
+ *   - Cloud API: only `media_id` is available (Meta media URLs expire
+ *     quickly, same reason the webhook's audio-transcription branch
+ *     re-derives a fresh one instead of reusing an old link) — resolve
+ *     the account's WhatsApp config for a decrypted access token, then
+ *     the same getMediaUrl + downloadMedia pair the media proxy route
+ *     and the audio branch both use.
+ * Best-effort — returns `null` on any failure rather than throwing, so
+ * a download hiccup degrades to "treat as invalid, let them retry"
+ * instead of crashing the run.
+ */
+async function downloadInboundImage(
+  db: AdminClient,
+  run: FlowRunRow,
+  message: Extract<ParsedInbound, { kind: "image" }>,
+): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  try {
+    if (message.media_url) {
+      const res = await fetch(message.media_url);
+      if (!res.ok) return null;
+      const buffer = Buffer.from(await res.arrayBuffer());
+      const mimeType =
+        res.headers.get("content-type") || message.mime_type || "image/jpeg";
+      return { buffer, mimeType };
+    }
+    if (message.media_id && run.conversation_id) {
+      const config = await resolveWhatsappConfigForConversation(
+        db,
+        run.account_id,
+        run.conversation_id,
+      );
+      const accessToken = decrypt(config.access_token);
+      const { url, mimeType: metaMime } = await getMediaUrl({
+        mediaId: message.media_id,
+        accessToken,
+      });
+      const { buffer, contentType } = await downloadMedia({
+        downloadUrl: url,
+        accessToken,
+      });
+      return {
+        buffer,
+        mimeType: contentType || metaMime || message.mime_type || "image/jpeg",
+      };
+    }
+    return null;
+  } catch (err) {
+    console.error(
+      "[flows] downloadInboundImage failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
+/**
+ * Handles an inbound image while a run is suspended at a
+ * `collect_payment_proof` node: download → vision verdict → store in
+ * vars → branch. Below `max_attempts`, an invalid verdict just
+ * resends the prompt and stays suspended at the same node (no graph
+ * edge needed for the retry itself); once attempts are exhausted,
+ * advances to `on_invalid_next_node_key` regardless of the verdict —
+ * that edge is expected to point at a `handoff` node so a human always
+ * catches a receipt the AI couldn't verify, rather than looping
+ * forever on an automated judgment call with real money involved.
+ */
+async function handleCollectPaymentProofReply(
+  db: AdminClient,
+  run: FlowRunRow,
+  node: FlowNodeRow,
+  message: Extract<ParsedInbound, { kind: "image" }>,
+  nodes: Map<string, FlowNodeRow>,
+): Promise<DispatchInboundResult> {
+  const cfg = node.config as unknown as CollectPaymentProofNodeConfig;
+  const maxAttempts = cfg.max_attempts ?? 2;
+  const priorVerdict = run.vars[cfg.var_key] as
+    | { attempts?: number }
+    | undefined;
+  const attempt =
+    (typeof priorVerdict?.attempts === "number" ? priorVerdict.attempts : 0) + 1;
+
+  const image = await downloadInboundImage(db, run, message);
+  const verdict = image
+    ? await analyzeReceiptImage(image.buffer, image.mimeType, {
+        expectedAmount: cfg.expected_amount,
+        extraContext: cfg.vision_instructions,
+      })
+    : null;
+
+  const resultVar = {
+    is_valid: verdict?.is_valid ?? false,
+    amount_seen: verdict?.amount_seen ?? null,
+    reason:
+      verdict?.reason ??
+      (image ? "vision_call_failed" : "image_download_failed"),
+    attempts: attempt,
+  };
+  const newVars = { ...run.vars, [cfg.var_key]: resultVar };
+  await db
+    .from("flow_runs")
+    .update({ vars: newVars, reprompt_count: 0 })
+    .eq("id", run.id);
+  run.vars = newVars;
+  run.reprompt_count = 0;
+  await logEvent(db, run.id, "node_entered", node.node_key, {
+    node_type: "collect_payment_proof_verdict",
+    ...resultVar,
+  });
+
+  if (resultVar.is_valid) {
+    const outcome = await advanceFromNodeKey(
+      db,
+      run,
+      cfg.on_valid_next_node_key,
+      nodes,
+      message.meta_message_id,
+    );
+    return { consumed: true, flow_run_id: run.id, outcome: outcome.outcome };
+  }
+
+  if (attempt >= maxAttempts) {
+    const outcome = await advanceFromNodeKey(
+      db,
+      run,
+      cfg.on_invalid_next_node_key,
+      nodes,
+      message.meta_message_id,
+    );
+    return { consumed: true, flow_run_id: run.id, outcome: outcome.outcome };
+  }
+
+  try {
+    await engineSendText({
+      accountId: run.account_id,
+      userId: run.user_id,
+      conversationId: run.conversation_id!,
+      contactId: run.contact_id!,
+      text: interpolateVars(cfg.prompt_text, run.vars),
+    });
+  } catch (err) {
+    await logEvent(db, run.id, "error", node.node_key, {
+      reason: "payment_proof_retry_send_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+  return { consumed: true, flow_run_id: run.id, outcome: "fallback_fired" };
 }
 
 async function handleReplyForActiveRun(
@@ -1925,6 +2137,35 @@ async function handleReplyForActiveRun(
         matched = cfg.next_node_key;
       }
     }
+  } else if (
+    message.kind === "image" &&
+    currentNode.node_type === "collect_payment_proof"
+  ) {
+    return await handleCollectPaymentProofReply(db, run, currentNode, message, nodes);
+  } else if (
+    message.kind !== "image" &&
+    currentNode.node_type === "collect_payment_proof"
+  ) {
+    // A text/interactive reply here never satisfies "send a photo of
+    // your receipt" — unlike collect_input there's no partial-credit
+    // capture to attempt, so just resend the prompt without burning an
+    // attempt (attempts are only counted against actual image submissions).
+    const cfg = currentNode.config as unknown as CollectPaymentProofNodeConfig;
+    try {
+      await engineSendText({
+        accountId: run.account_id,
+        userId: run.user_id,
+        conversationId: run.conversation_id!,
+        contactId: run.contact_id!,
+        text: interpolateVars(cfg.prompt_text, run.vars),
+      });
+    } catch (err) {
+      await logEvent(db, run.id, "error", currentNode.node_key, {
+        reason: "payment_proof_reprompt_failed",
+        detail: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return { consumed: true, flow_run_id: run.id, outcome: "fallback_fired" };
   }
 
   if (matched) {

@@ -26,6 +26,7 @@ import {
   MessageCircle,
   Paperclip,
   PlayCircle,
+  Receipt,
   Sparkles,
   Tag,
   UserPlus,
@@ -49,6 +50,7 @@ export type NodeType =
   | 'send_list'
   | 'send_media'
   | 'collect_input'
+  | 'collect_payment_proof'
   | 'condition'
   | 'set_tag'
   | 'export_order'
@@ -142,6 +144,13 @@ export const NODE_META: Record<
     blurb: 'Asks a question, saves the reply',
     category: 'logic',
   },
+  collect_payment_proof: {
+    label: 'Verify payment',
+    icon: Receipt,
+    color: 'text-orange-400',
+    blurb: 'Waits for a receipt photo, verifies it with AI',
+    category: 'logic',
+  },
   condition: {
     label: 'If / else',
     icon: GitFork,
@@ -221,6 +230,7 @@ const NODE_HUE: Record<NodeType, { l: number; c: number; h: number }> = {
   send_list: { l: 0.62, c: 0.15, h: 277 }, // indigo
   send_media: { l: 0.65, c: 0.12, h: 210 }, // sky
   collect_input: { l: 0.65, c: 0.1, h: 185 }, // teal — capture
+  collect_payment_proof: { l: 0.68, c: 0.17, h: 45 }, // orange — money/receipt
   condition: { l: 0.72, c: 0.15, h: 65 }, // amber — a fork in the road
   set_tag: { l: 0.65, c: 0.15, h: 350 }, // pink
   export_order: { l: 0.68, c: 0.16, h: 135 }, // lime — order log / sheet
@@ -393,6 +403,14 @@ export function summarizeNode(node: BuilderNode): string | null {
           : truncate(prompt);
       }
       return varKey ? `→ vars.${varKey}` : null;
+    }
+    case 'collect_payment_proof': {
+      const amount =
+        typeof cfg.expected_amount === 'number' ? cfg.expected_amount : null;
+      const varKey = typeof cfg.var_key === 'string' ? cfg.var_key : '';
+      const amountStr = amount ? `$${amount.toLocaleString('es-CO')}` : null;
+      if (amountStr && varKey) return `${amountStr} → vars.${varKey}`;
+      return amountStr ?? (varKey ? `→ vars.${varKey}` : null);
     }
     case 'condition': {
       const subjectKey =

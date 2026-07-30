@@ -690,6 +690,7 @@ const ADD_NODE_TYPES: NodeType[] = [
   'send_message',
   'send_media',
   'collect_input',
+  'collect_payment_proof',
   'condition',
   'set_tag',
   'export_order',

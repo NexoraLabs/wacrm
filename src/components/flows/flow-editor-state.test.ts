@@ -88,6 +88,7 @@ describe("defaultConfigFor", () => {
     "send_list",
     "send_media",
     "collect_input",
+    "collect_payment_proof",
     "condition",
     "set_tag",
     "export_order",

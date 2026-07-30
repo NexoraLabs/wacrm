@@ -227,6 +227,40 @@ export interface ExportOrderNodeConfig {
 export type EndNodeConfig = Record<string, never>;
 
 /**
+ * Waits for the customer's next inbound message to be an image, downloads
+ * it, and asks a vision model (`analyzeReceiptImage`, `src/lib/ai/receipt.ts`)
+ * whether it plausibly looks like a valid payment receipt (Nequi /
+ * Bancolombia / Daviplata / Bre-B) before branching. Mirrors
+ * `CollectInputNodeConfig`'s "send prompt, suspend, then classify the
+ * reply" shape, but the "reply" here must be an image, not text, and
+ * the classification is a vision call instead of a text one.
+ *
+ * A non-image reply (or no reply yet) always re-sends `prompt_text` —
+ * there's no partial-credit capture like collect_input's off-topic
+ * handling, since "send a photo" has no ambiguous middle ground.
+ */
+export interface CollectPaymentProofNodeConfig {
+  /** Payment instructions + "send a photo of your receipt", sent before suspending. */
+  prompt_text: string;
+  /** Expected payment amount in COP, cross-checked by the vision prompt. */
+  expected_amount?: number;
+  /** Extra context appended to the vision prompt (payment methods/names to expect). */
+  vision_instructions?: string;
+  /** flow_runs.vars key storing the verdict object ({is_valid, amount_seen, reason, attempts}). */
+  var_key: string;
+  /** Node to advance to when the vision model judges the receipt valid. */
+  on_valid_next_node_key: string;
+  /** Node to advance to on an invalid/unreadable image (below max_attempts). */
+  on_invalid_next_node_key: string;
+  /**
+   * Max invalid-image attempts before forcing a handoff regardless of
+   * on_invalid_next_node_key — a safety net against looping forever on
+   * an AI verdict a human should look at instead. Defaults to 2.
+   */
+  max_attempts?: number;
+}
+
+/**
  * Total union — every concrete node_type the v1 engine understands.
  * Add new node types here and the engine's switch will flag missing
  * cases via TypeScript's exhaustiveness check.
@@ -241,6 +275,7 @@ export type FlowNodeConfig =
   | { node_type: "send_list"; config: SendListNodeConfig }
   | { node_type: "send_media"; config: SendMediaNodeConfig }
   | { node_type: "collect_input"; config: CollectInputNodeConfig }
+  | { node_type: "collect_payment_proof"; config: CollectPaymentProofNodeConfig }
   | { node_type: "condition"; config: ConditionNodeConfig }
   | { node_type: "set_tag"; config: SetTagNodeConfig }
   | { node_type: "export_order"; config: ExportOrderNodeConfig }
@@ -403,6 +438,23 @@ export type ParsedInbound =
       reply_id: string;
       /** The visible title of the tapped option (for logging). */
       reply_title: string;
+      meta_message_id: string;
+    }
+  | {
+      kind: "image";
+      /**
+       * Meta's raw media id (Cloud API only) — needed to re-fetch a
+       * fresh signed download URL via getMediaUrl/downloadMedia, since
+       * Meta media URLs expire quickly. Null for QR/Baileys, where
+       * media_url below is already a directly-fetchable URL.
+       */
+      media_id: string | null;
+      /**
+       * Directly fetchable URL (QR/Baileys' precomputedMediaUrl).
+       * Null for Cloud API — use media_id instead.
+       */
+      media_url: string | null;
+      mime_type: string | null;
       meta_message_id: string;
     };
 

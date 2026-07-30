@@ -171,6 +171,15 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
         var_key: "answer",
         next_node_key: "",
       };
+    case "collect_payment_proof":
+      return {
+        prompt_text: "",
+        vision_instructions: "",
+        var_key: "payment_proof",
+        on_valid_next_node_key: "",
+        on_invalid_next_node_key: "",
+        max_attempts: 2,
+      };
     case "condition":
       return {
         subject: "var",

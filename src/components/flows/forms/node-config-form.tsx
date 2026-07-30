@@ -193,6 +193,16 @@ export function NodeConfigForm({
         </>
       );
 
+    case "collect_payment_proof":
+      return (
+        <PaymentProofForm
+          cfg={cfg as PaymentProofCfg}
+          allNodes={allNodes}
+          currentKey={node.node_key}
+          onUpdateConfig={onUpdateConfig}
+        />
+      );
+
     case "condition":
       return (
         <ConditionForm
@@ -605,6 +615,120 @@ function SendListForm({
           </Button>
         )}
       </div>
+    </>
+  );
+}
+
+// ============================================================
+// collect_payment_proof
+// ============================================================
+
+interface PaymentProofCfg {
+  prompt_text?: string;
+  expected_amount?: number;
+  vision_instructions?: string;
+  var_key?: string;
+  on_valid_next_node_key?: string;
+  on_invalid_next_node_key?: string;
+  max_attempts?: number;
+}
+
+function PaymentProofForm({
+  cfg,
+  allNodes,
+  currentKey,
+  onUpdateConfig,
+}: {
+  cfg: PaymentProofCfg;
+  allNodes: BuilderNode[];
+  currentKey: string;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+}) {
+  return (
+    <>
+      <TextRow
+        label="Payment instructions sent to the customer (asks for a receipt photo)"
+        value={cfg.prompt_text ?? ""}
+        onChange={(v) => onUpdateConfig({ prompt_text: v })}
+        rows={5}
+      />
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">
+            Expected amount (COP, optional)
+          </label>
+          <Input
+            type="number"
+            value={cfg.expected_amount ?? ""}
+            onChange={(e) =>
+              onUpdateConfig({
+                expected_amount: e.target.value
+                  ? Number(e.target.value)
+                  : undefined,
+              })
+            }
+            placeholder="e.g. 15000"
+            className="bg-muted"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">
+            Max invalid attempts before handoff
+          </label>
+          <Input
+            type="number"
+            min={1}
+            value={cfg.max_attempts ?? 2}
+            onChange={(e) =>
+              onUpdateConfig({ max_attempts: Number(e.target.value) || 1 })
+            }
+            className="bg-muted"
+          />
+        </div>
+      </div>
+      <TextRow
+        label="Extra context for the AI vision check (payment methods/names to expect)"
+        value={cfg.vision_instructions ?? ""}
+        onChange={(v) => onUpdateConfig({ vision_instructions: v })}
+        rows={2}
+      />
+      <div>
+        <label className="mb-1 block text-xs text-muted-foreground">
+          Variable key (stores the verdict in flow_runs.vars; alphanumeric + underscore)
+        </label>
+        <Input
+          value={cfg.var_key ?? ""}
+          onChange={(e) =>
+            onUpdateConfig({
+              var_key: e.target.value.replace(/[^a-zA-Z0-9_]/g, ""),
+            })
+          }
+          placeholder="e.g. payment_proof"
+          className="bg-muted font-mono text-xs"
+        />
+      </div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <NextNodeRow
+          value={cfg.on_valid_next_node_key ?? ""}
+          allNodes={allNodes}
+          currentKey={currentKey}
+          onChange={(v) => onUpdateConfig({ on_valid_next_node_key: v })}
+          label="If valid → advance to"
+        />
+        <NextNodeRow
+          value={cfg.on_invalid_next_node_key ?? ""}
+          allNodes={allNodes}
+          currentKey={currentKey}
+          onChange={(v) => onUpdateConfig({ on_invalid_next_node_key: v })}
+          label="If invalid (attempts exhausted) → advance to"
+        />
+      </div>
+      <p className="text-muted-foreground text-xs">
+        Below max attempts, an invalid receipt just resends the prompt and
+        waits for another photo — the &quot;invalid&quot; branch only fires
+        once attempts run out (usually wired to a handoff node so a human
+        reviews it).
+      </p>
     </>
   );
 }

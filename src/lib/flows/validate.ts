@@ -776,6 +776,76 @@ function validateNode(
       break;
     }
 
+    case "collect_payment_proof": {
+      const cfg = node.config as {
+        prompt_text?: string;
+        var_key?: string;
+        on_valid_next_node_key?: string;
+        on_invalid_next_node_key?: string;
+      };
+      if (!cfg.prompt_text?.trim()) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "prompt_text",
+          message: "Payment-proof node needs the payment instructions to send the customer.",
+        });
+      }
+      if (!cfg.var_key?.trim()) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "var_key",
+          message: "Payment-proof node needs a var_key to store the verdict under.",
+        });
+      } else if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(cfg.var_key)) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "var_key",
+          message: `var_key "${cfg.var_key}" must be alphanumeric+underscore and start with a letter or underscore.`,
+        });
+      }
+      if (!cfg.on_valid_next_node_key) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "on_valid_next_node_key",
+          message: "Payment-proof node needs a node for the \"valid\" branch.",
+        });
+      } else if (!knownKeys.has(cfg.on_valid_next_node_key)) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "on_valid_next_node_key",
+          message: `"Valid" branch points to non-existent node "${cfg.on_valid_next_node_key}".`,
+        });
+      }
+      if (!cfg.on_invalid_next_node_key) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "on_invalid_next_node_key",
+          message: "Payment-proof node needs a node for the \"invalid\" branch.",
+        });
+      } else if (!knownKeys.has(cfg.on_invalid_next_node_key)) {
+        issues.push({
+          severity: "error",
+          scope: "node",
+          node_key: node.node_key,
+          field: "on_invalid_next_node_key",
+          message: `"Invalid" branch points to non-existent node "${cfg.on_invalid_next_node_key}".`,
+        });
+      }
+      break;
+    }
+
     case "handoff":
     case "end":
       // Terminal nodes have no outgoing edges; nothing to validate
@@ -840,6 +910,16 @@ function outgoingEdges(node: NodeInput): string[] {
       const out: string[] = [];
       if (cfg.true_next) out.push(cfg.true_next);
       if (cfg.false_next) out.push(cfg.false_next);
+      return out;
+    }
+    case "collect_payment_proof": {
+      const cfg = node.config as {
+        on_valid_next_node_key?: string;
+        on_invalid_next_node_key?: string;
+      };
+      const out: string[] = [];
+      if (cfg.on_valid_next_node_key) out.push(cfg.on_valid_next_node_key);
+      if (cfg.on_invalid_next_node_key) out.push(cfg.on_invalid_next_node_key);
       return out;
     }
     case "send_buttons": {

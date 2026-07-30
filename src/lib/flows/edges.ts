@@ -87,6 +87,32 @@ export function deriveCanvasEdges(nodes: BuilderNode[]): CanvasEdge[] {
         break;
       }
 
+      case "collect_payment_proof": {
+        const validNext = (cfg as { on_valid_next_node_key?: string })
+          .on_valid_next_node_key;
+        const invalidNext = (cfg as { on_invalid_next_node_key?: string })
+          .on_invalid_next_node_key;
+        if (validNext && knownKeys.has(validNext)) {
+          edges.push({
+            id: `${node.node_key}--valid--${validNext}`,
+            source: node.node_key,
+            target: validNext,
+            sourceHandle: "valid",
+            label: "valid",
+          });
+        }
+        if (invalidNext && knownKeys.has(invalidNext)) {
+          edges.push({
+            id: `${node.node_key}--invalid--${invalidNext}`,
+            source: node.node_key,
+            target: invalidNext,
+            sourceHandle: "invalid",
+            label: "invalid",
+          });
+        }
+        break;
+      }
+
       case "send_buttons": {
         const buttons = Array.isArray(
           (cfg as { buttons?: unknown }).buttons,
@@ -191,6 +217,12 @@ export function outgoingSlots(node: BuilderNode): OutgoingSlot[] {
         { id: "false", label: "false" },
       ];
 
+    case "collect_payment_proof":
+      return [
+        { id: "valid", label: "Valid" },
+        { id: "invalid", label: "Invalid" },
+      ];
+
     case "send_buttons": {
       const buttons = Array.isArray((cfg as { buttons?: unknown }).buttons)
         ? ((cfg as { buttons: Array<Record<string, unknown>> }).buttons)
@@ -265,6 +297,11 @@ export function applyEdgeConnection(
     case "condition":
       if (sourceHandle === "true") return { true_next: targetKey };
       if (sourceHandle === "false") return { false_next: targetKey };
+      return null;
+
+    case "collect_payment_proof":
+      if (sourceHandle === "valid") return { on_valid_next_node_key: targetKey };
+      if (sourceHandle === "invalid") return { on_invalid_next_node_key: targetKey };
       return null;
 
     case "send_buttons": {
@@ -369,6 +406,21 @@ function patchedConfigWithoutKey(
         ...cfg,
         ...(trueMatch ? { true_next: "" } : {}),
         ...(falseMatch ? { false_next: "" } : {}),
+      };
+    }
+
+    case "collect_payment_proof": {
+      const c = cfg as {
+        on_valid_next_node_key?: string;
+        on_invalid_next_node_key?: string;
+      };
+      const validMatch = c.on_valid_next_node_key === deletedKey;
+      const invalidMatch = c.on_invalid_next_node_key === deletedKey;
+      if (!validMatch && !invalidMatch) return null;
+      return {
+        ...cfg,
+        ...(validMatch ? { on_valid_next_node_key: "" } : {}),
+        ...(invalidMatch ? { on_invalid_next_node_key: "" } : {}),
       };
     }
 

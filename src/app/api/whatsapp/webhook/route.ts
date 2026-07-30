@@ -781,11 +781,27 @@ export async function processMessage(
             reply_title: contentText ?? '',
             meta_message_id: message.id,
           }
-        : {
-            kind: 'text',
-            text: contentText ?? message.text?.body ?? '',
-            meta_message_id: message.id,
-          },
+        : message.type === 'image'
+          ? {
+              kind: 'image',
+              // QR/Baileys already resolved a directly-fetchable URL
+              // (precomputedMediaUrl) — use it as-is. Cloud API's
+              // mediaUrl is only the internal auth-gated proxy path
+              // (/api/whatsapp/media/{id}), not fetchable server-side,
+              // so pass the raw media id instead and let the flows
+              // engine re-derive a fresh signed download URL via
+              // getMediaUrl/downloadMedia when it actually needs the
+              // bytes (only collect_payment_proof nodes do).
+              media_id: precomputedMediaUrl ? null : (message.image?.id ?? null),
+              media_url: precomputedMediaUrl ?? null,
+              mime_type: mediaType,
+              meta_message_id: message.id,
+            }
+          : {
+              kind: 'text',
+              text: contentText ?? message.text?.body ?? '',
+              meta_message_id: message.id,
+            },
     isFirstInboundMessage,
   })
   const flowConsumed = flowResult.consumed
