@@ -1088,12 +1088,15 @@ async function classifyMenuReplyIntent(
       systemPrompt:
         "The customer was just shown a WhatsApp menu with these options:\n" +
         optionList +
-        '\n\nDecide whether their reply clearly means to pick ONE of these ' +
-        'options — even if phrased differently (e.g. "lo quiero comprar" for ' +
-        'an option titled "Quiero comprarlo") — as opposed to asking ' +
-        "something unrelated or a genuinely different question. Reply with " +
-        'ONLY a JSON object: {"option": <number>} if it clearly matches one ' +
-        'option, or {"option": null} if it does not. No prose, no markdown fences.',
+        "\n\nReal customers almost never repeat an option's exact wording — " +
+        "they paraphrase. Match on the underlying INTENT, not literal text " +
+        'overlap: e.g. for an option titled "Quiero comprarlo", phrases like ' +
+        '"lo quiero comprar", "sí, dale", "cómo lo compro", "quiero pagarlo", ' +
+        '"lo quiero" all mean that option — be decisive and pick it even ' +
+        "though none of them share its exact wording. Only answer null if " +
+        "the reply is truly unrelated to every option (random small talk, a " +
+        "totally different question, spam). Reply with ONLY a JSON object: " +
+        '{"option": <number>} or {"option": null}. No prose, no markdown fences.',
       messages: [{ role: "user", content: trimmed }],
     });
     const cleaned = raw

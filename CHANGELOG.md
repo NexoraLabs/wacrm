@@ -9,6 +9,22 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.2] — 2026-07-30
+
+### Fixed
+
+- **`classifyMenuReplyIntent` (added in 0.25.1) was too conservative** —
+  live-tested with "lo quiero comprar" against a button titled "Quiero
+  comprarlo 💳" and it answered "no match," falling through to the
+  generic off-menu AI answer instead of advancing. The classification
+  prompt asked for a "clear" match without examples, and the model
+  played it safe. Rewritten to explicitly frame this as
+  intent-matching rather than wording overlap, with example paraphrases
+  for both a purchase-intent and a question-intent option, and an
+  explicit instruction to be decisive. Not yet re-verified live as of
+  this commit — next real test should confirm "lo quiero comprar"
+  (or similar phrasing) now advances straight to the payment step.
+
 ## [0.25.1] — 2026-07-30
 
 ### Fixed
