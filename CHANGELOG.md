@@ -9,6 +9,24 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.1] — 2026-07-30
+
+### Fixed
+
+- **A QR conversation's free-text reply to a button/list menu only
+  advanced the flow on an exact (or substring) match against a
+  button's title or its position number** — a customer typing real
+  purchase-intent phrasing that didn't literally contain the button's
+  text (e.g. "lo quiero comprar" against a button titled "Quiero
+  comprarlo 💳") fell straight to the generic off-menu AI answer and
+  never advanced, even though the intent was obvious. Added
+  `classifyMenuReplyIntent` (`src/lib/flows/engine.ts`) — a cheap AI
+  classification tried only when the deterministic
+  `matchTextReplyToMenu` misses, asking whether the reply clearly
+  picks one of the currently-shown options. Defaults to "no match" on
+  any failure/ambiguity, so a wrong guess never misroutes the customer
+  — it just falls back to today's off-menu AI answer.
+
 ## [0.25.0] — 2026-07-30
 
 ### Added

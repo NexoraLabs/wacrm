@@ -1036,6 +1036,86 @@ async function tryExtractMultipleFields(
  * parse fails — a missed classification should never block a
  * legitimate answer from being captured.
  */
+/**
+ * When a QR conversation's free-text reply to a send_buttons/send_list
+ * menu doesn't literally match any option (`matchTextReplyToMenu` — exact
+ * title, number, or substring), ask a cheap AI classification whether the
+ * reply still clearly expresses the same intent as one of the options
+ * (e.g. "lo quiero comprar" for a button titled "Quiero comprarlo 💳").
+ * Without this, a customer who types a real sentence instead of the
+ * expected number/title falls straight to the generic off-menu AI answer
+ * and the flow never advances — even though their intent was obvious.
+ *
+ * Defaults to `null` (no match) on any failure or ambiguity — unlike
+ * `classifyCollectInputReply`'s "assume it's an answer" default, wrongly
+ * routing a customer into the wrong menu branch is worse than just
+ * falling through to the existing off-menu AI answer.
+ */
+async function classifyMenuReplyIntent(
+  db: AdminClient,
+  accountId: string,
+  node: { node_type: string; config: Record<string, unknown> },
+  text: string,
+): Promise<string | null> {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const options: Array<{ title: string; next_node_key: string }> = [];
+  if (node.node_type === "send_buttons") {
+    const cfg = node.config as unknown as SendButtonsNodeConfig;
+    for (const b of cfg.buttons ?? []) {
+      options.push({ title: b.title, next_node_key: b.next_node_key });
+    }
+  } else if (node.node_type === "send_list") {
+    const cfg = node.config as unknown as SendListNodeConfig;
+    for (const section of cfg.sections ?? []) {
+      for (const r of section.rows ?? []) {
+        options.push({ title: r.title, next_node_key: r.next_node_key });
+      }
+    }
+  } else {
+    return null;
+  }
+  if (options.length === 0) return null;
+
+  const aiConfig = await loadAiConfig(db, accountId);
+  if (!aiConfig) return null;
+
+  try {
+    const optionList = options.map((o, i) => `${i + 1}. "${o.title}"`).join("\n");
+    const { text: raw } = await generateReply({
+      config: aiConfig,
+      systemPrompt:
+        "The customer was just shown a WhatsApp menu with these options:\n" +
+        optionList +
+        '\n\nDecide whether their reply clearly means to pick ONE of these ' +
+        'options — even if phrased differently (e.g. "lo quiero comprar" for ' +
+        'an option titled "Quiero comprarlo") — as opposed to asking ' +
+        "something unrelated or a genuinely different question. Reply with " +
+        'ONLY a JSON object: {"option": <number>} if it clearly matches one ' +
+        'option, or {"option": null} if it does not. No prose, no markdown fences.',
+      messages: [{ role: "user", content: trimmed }],
+    });
+    const cleaned = raw
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/, "")
+      .trim();
+    const parsed = JSON.parse(cleaned) as { option?: unknown };
+    const idx = typeof parsed.option === "number" ? parsed.option : null;
+    if (idx === null || !Number.isInteger(idx) || idx < 1 || idx > options.length) {
+      return null;
+    }
+    return options[idx - 1].next_node_key;
+  } catch (err) {
+    console.error(
+      "[flows] menu reply intent classification failed (defaulting to no match):",
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
+
 async function classifyCollectInputReply(
   db: AdminClient,
   accountId: string,
@@ -2042,6 +2122,14 @@ async function handleReplyForActiveRun(
     ).catch(() => null);
     if (config?.provider === "qr") {
       matched = matchTextReplyToMenu(currentNode, message.text);
+      if (!matched) {
+        matched = await classifyMenuReplyIntent(
+          db,
+          run.account_id,
+          currentNode,
+          message.text,
+        );
+      }
     }
   } else if (
     message.kind === "text" &&
