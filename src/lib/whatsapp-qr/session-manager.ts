@@ -135,8 +135,14 @@ async function handleConnectionUpdate(
   }
 
   if (update.connection === 'close') {
-    const statusCode = (update.lastDisconnect?.error as Boom | undefined)?.output?.statusCode
+    const boomError = update.lastDisconnect?.error as Boom | undefined
+    const statusCode = boomError?.output?.statusCode
     const loggedOut = statusCode === DisconnectReason.loggedOut
+
+    console.error(
+      `[whatsapp-qr] connection closed for config ${configId} (statusCode=${statusCode ?? 'unknown'}):`,
+      boomError?.message ?? update.lastDisconnect?.error,
+    )
 
     sessions.delete(configId)
 
@@ -204,4 +210,27 @@ export async function reconnectAllQrSessions(): Promise<void> {
       console.error(`[whatsapp-qr] boot reconnect failed for ${config.id}:`, err),
     )
   }
+}
+
+const WATCHDOG_INTERVAL_MS = 3 * 60 * 1000
+let watchdogStarted = false
+
+/**
+ * Safety net on top of the boot-time sweep and the close-handler's
+ * reconnect: either of those is a single attempt that silently gives up
+ * on failure (a transient Supabase/network hiccup, an uncaught error,
+ * etc.), which can leave a QR session stuck offline indefinitely with
+ * nothing retrying. Re-running the same idempotent sweep on an interval
+ * (startSession() is a no-op for any configId already in `sessions`)
+ * means a failed attempt just gets retried a few minutes later instead
+ * of being a permanent dead end. Call once from instrumentation.ts.
+ */
+export function startQrWatchdog(): void {
+  if (watchdogStarted) return
+  watchdogStarted = true
+  setInterval(() => {
+    reconnectAllQrSessions().catch((err) =>
+      console.error('[whatsapp-qr] watchdog sweep failed:', err),
+    )
+  }, WATCHDOG_INTERVAL_MS)
 }

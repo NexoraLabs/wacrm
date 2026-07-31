@@ -9,6 +9,19 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.3] — 2026-07-31
+
+### Fixed
+
+- **QR/Baileys WhatsApp sessions could get stuck offline indefinitely
+  with nothing retrying.** Both the boot-time reconnect sweep and the
+  close-handler's reconnect were single attempts — a transient failure
+  (Supabase hiccup, network blip) left the session dead until someone
+  noticed and redeployed. Added a watchdog that re-runs the same
+  idempotent reconnect sweep every 3 minutes, and logs the disconnect
+  reason (statusCode + message) on every connection close for future
+  diagnosis. `src/lib/whatsapp-qr/session-manager.ts`, `instrumentation.ts`.
+
 ## [0.25.2] — 2026-07-30
 
 ### Fixed
