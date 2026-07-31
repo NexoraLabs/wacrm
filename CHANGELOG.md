@@ -9,10 +9,24 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
-## [0.25.3] — 2026-07-31
+## [0.25.4] — 2026-07-31
 
 ### Fixed
 
+- **Root cause of "WhatsApp keeps disconnecting" on QR/Baileys numbers,
+  confirmed live via EasyPanel logs**: right after WhatsApp's routine
+  post-pairing `restartRequired` (515) close, the old and new sockets
+  for the same config briefly overlapped, and Baileys'
+  `useMultiFileAuthState.saveCreds()` on the dying socket rejected
+  (its auth folder was mid-rewrite by the reconnect) — an *unhandled*
+  rejection, since that one call site had no `.catch()`. Node's default
+  behavior is to crash the entire process on an unhandled rejection, so
+  this took down the whole app (not just the one WhatsApp session) —
+  matching the repeated Next.js boot banners seen in production logs.
+  Fixed the missing `.catch()`, and added a process-wide
+  `unhandledRejection` handler (log instead of crash) as a safety net
+  against any other such case inside Baileys' large internal event
+  surface. `src/lib/whatsapp-qr/session-manager.ts`, `instrumentation.ts`.
 - **QR/Baileys WhatsApp sessions could get stuck offline indefinitely
   with nothing retrying.** Both the boot-time reconnect sweep and the
   close-handler's reconnect were single attempts — a transient failure

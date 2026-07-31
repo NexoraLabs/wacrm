@@ -69,7 +69,16 @@ export async function startSession(
   sessions.set(configId, { sock, accountId, configOwnerUserId })
 
   sock.ev.on('creds.update', () => {
-    void saveCreds()
+    // Unguarded, this was the one call site in the file without a
+    // .catch() — a rejection here (e.g. this socket's auth folder got
+    // torn down by a concurrent reconnect for the same configId) was an
+    // unhandled promise rejection, which crashes the entire Node
+    // process by default. That's the real cause behind sessions
+    // appearing to "randomly disconnect": WhatsApp's routine
+    // post-pairing restartRequired (515) close briefly overlaps the old
+    // and new sockets, saveCreds() on the dying one throws, and the
+    // whole container restarts — not just this Baileys session.
+    saveCreds().catch((err) => console.error('[whatsapp-qr] saveCreds failed:', err))
     scheduleAuthSnapshot(configId)
   })
 
