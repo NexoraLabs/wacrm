@@ -9,6 +9,26 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.6] — 2026-08-01
+
+### Fixed
+
+- **QR/Baileys session could look "Connected" after a redeploy while
+  silently not receiving any messages**: `reconnectAllQrSessions()`
+  (run on every process boot and every 3-minute watchdog tick) only
+  logged a reconnect failure — it never updated
+  `whatsapp_qr_sessions.status`, so a stale "connected" value from
+  before the restart stuck around indefinitely with nothing surfacing
+  the real state. Separately, a session entry is added to the
+  in-memory `sessions` map the instant the socket object is created,
+  well before the handshake with WhatsApp actually resolves — if that
+  handshake hangs (neither `open` nor `close` ever fires), the
+  watchdog's `sessions.has(configId)` no-op check treated it as
+  healthy forever. Fixed both: reconnect failures now flip the DB row
+  to `disconnected`, and a new `reapStaleSessions()` tears down and
+  retries any entry still unconnected after 2 minutes.
+  `src/lib/whatsapp-qr/session-manager.ts`.
+
 ## [0.25.5] — 2026-08-01
 
 ### Fixed

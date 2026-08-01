@@ -20,6 +20,18 @@ interface SessionEntry {
   sock: WASocket
   accountId: string
   configOwnerUserId: string
+  /**
+   * Flips to true only once `connection.update` reports `open`. A session
+   * entry exists in `sessions` from the moment `makeWASocket()` returns —
+   * well before the actual handshake with WhatsApp's servers resolves — so
+   * presence in the map alone doesn't mean the socket is truly connected.
+   */
+  connected: boolean
+  /** `Date.now()` when this entry was created — used to detect a socket
+   * stuck mid-handshake (never fires `open` or `close`) so the watchdog
+   * can reap and retry it instead of treating the stale entry as healthy
+   * forever. */
+  connectingSince: number
 }
 
 // Module-scope — lives for the process's lifetime. There is exactly one
@@ -66,7 +78,13 @@ export async function startSession(
     browser: ['Chrome (Linux)', 'Chrome', '129.0.0.0'],
   })
 
-  sessions.set(configId, { sock, accountId, configOwnerUserId })
+  sessions.set(configId, {
+    sock,
+    accountId,
+    configOwnerUserId,
+    connected: false,
+    connectingSince: Date.now(),
+  })
 
   sock.ev.on('creds.update', () => {
     // Unguarded, this was the one call site in the file without a
@@ -121,7 +139,9 @@ async function handleConnectionUpdate(
   }
 
   if (update.connection === 'open') {
-    const sock = sessions.get(configId)?.sock
+    const entry = sessions.get(configId)
+    if (entry) entry.connected = true
+    const sock = entry?.sock
     // Prefer the explicit phone-number field — `user.id` can be in LID
     // (linked-id) format on newer accounts, which isn't a dialable number.
     const meId = sock?.user?.phoneNumber ?? sock?.user?.id
@@ -197,12 +217,42 @@ export async function stopSession(configId: string): Promise<void> {
   await clearAuthFolder(configId)
 }
 
+// A socket stuck mid-handshake (never fires `open` or `close` — e.g. a
+// hung network request during boot) sits in `sessions` looking identical
+// to a healthy one to `startSession`'s `sessions.has(configId)` no-op
+// check. Shorter than WATCHDOG_INTERVAL_MS so every watchdog tick can
+// catch and reap an entry stuck since the previous tick.
+const STALE_CONNECTING_MS = 2 * 60 * 1000
+
+/**
+ * Tears down any session entry that's been sitting unconnected for too
+ * long, so the next `startSession` call for that configId isn't a no-op
+ * against a socket that will never finish connecting on its own.
+ */
+function reapStaleSessions(): void {
+  const now = Date.now()
+  for (const [configId, entry] of sessions) {
+    if (!entry.connected && now - entry.connectingSince > STALE_CONNECTING_MS) {
+      console.error(
+        `[whatsapp-qr] session ${configId} stuck connecting for over ${STALE_CONNECTING_MS / 1000}s — reaping and retrying`,
+      )
+      sessions.delete(configId)
+      entry.sock.end(new Error('reaped: stuck mid-handshake')).catch(() => {
+        // Best-effort teardown of the dead socket — nothing to recover.
+      })
+    }
+  }
+}
+
 /**
  * Reconnect every already-paired QR session. Called once from
- * instrumentation.ts on process boot — a redeploy/restart otherwise
- * leaves every QR number silently disconnected until someone notices.
+ * instrumentation.ts on process boot, and again on every watchdog tick —
+ * a redeploy/restart otherwise leaves every QR number silently
+ * disconnected until someone notices.
  */
 export async function reconnectAllQrSessions(): Promise<void> {
+  reapStaleSessions()
+
   const db = supabaseAdmin()
   const { data: configs, error } = await db
     .from('whatsapp_config')
@@ -215,9 +265,19 @@ export async function reconnectAllQrSessions(): Promise<void> {
   }
 
   for (const config of configs ?? []) {
-    startSession(config.id, config.account_id, config.user_id).catch((err) =>
-      console.error(`[whatsapp-qr] boot reconnect failed for ${config.id}:`, err),
-    )
+    startSession(config.id, config.account_id, config.user_id).catch(async (err) => {
+      console.error(`[whatsapp-qr] boot reconnect failed for ${config.id}:`, err)
+      // startSession() only throws before a socket/listener is ever
+      // registered (auth restore, version fetch, makeWASocket() itself) —
+      // there's no live connection.update flow to correct the DB in that
+      // case, so without this the row is left showing whatever it said
+      // before this attempt (e.g. a stale "connected" from before a
+      // redeploy), with nothing surfacing the real failure.
+      await db
+        .from('whatsapp_qr_sessions')
+        .update({ status: 'disconnected', updated_at: new Date().toISOString() })
+        .eq('whatsapp_config_id', config.id)
+    })
   }
 }
 
