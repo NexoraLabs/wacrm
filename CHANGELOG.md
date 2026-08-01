@@ -9,6 +9,18 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.5] — 2026-08-01
+
+### Fixed
+
+- **`collect_payment_proof` flow node ignored genuine questions**: a
+  customer typing a text question at this step (instead of sending a
+  payment screenshot) just got the same payment prompt resent verbatim,
+  with no way to actually get an answer. Now checks whether the reply
+  looks like a question (`looksLikeAQuestion`) and, if so, answers it
+  with AI (product context + conversation history) before falling back
+  to the resend. `src/lib/flows/engine.ts`.
+
 ## [0.25.4] — 2026-07-31
 
 ### Fixed

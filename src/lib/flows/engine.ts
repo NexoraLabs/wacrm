@@ -2242,6 +2242,39 @@ async function handleReplyForActiveRun(
     // capture to attempt, so just resend the prompt without burning an
     // attempt (attempts are only counted against actual image submissions).
     const cfg = currentNode.config as unknown as CollectPaymentProofNodeConfig;
+    // If it reads like a genuine question (not just "ok"/"listo"), answer
+    // it with AI instead of silently re-sending the same payment prompt —
+    // mirrors the generic off-menu-answer path below, scoped to this node
+    // type since the branch above returns before reaching that one.
+    if (message.kind === "text" && looksLikeAQuestion(message.text)) {
+      let aiResult: { whatsapp_message_id: string } | null = null;
+      try {
+        aiResult = await generateAiAnswer(
+          db,
+          run,
+          message.meta_message_id,
+          "Responde breve (máximo 3 líneas) la duda del cliente sobre el " +
+            "producto usando el contexto y el historial. Termina invitándolo " +
+            "a enviar la foto del comprobante de pago cuando esté listo.",
+        );
+      } catch (err) {
+        await logEvent(db, run.id, "error", currentNode.node_key, {
+          reason: "payment_proof_question_answer_failed",
+          detail: err instanceof Error ? err.message : String(err),
+        });
+      }
+      if (aiResult) {
+        await logEvent(db, run.id, "message_sent", currentNode.node_key, {
+          node_type: "payment_proof_question_answer",
+          whatsapp_message_id: aiResult.whatsapp_message_id,
+        });
+        return {
+          consumed: true,
+          flow_run_id: run.id,
+          outcome: "off_menu_answered",
+        };
+      }
+    }
     try {
       await engineSendText({
         accountId: run.account_id,
