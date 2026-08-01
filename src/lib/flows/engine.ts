@@ -43,7 +43,11 @@ import {
 import { decideFallback, resolveFallbackPolicy } from "./fallback";
 import { loadAiConfig } from "@/lib/ai/config";
 import { buildConversationContext } from "@/lib/ai/context";
-import { buildSystemPrompt, containsOrderConfirmationClaim } from "@/lib/ai/defaults";
+import {
+  buildSystemPrompt,
+  containsOrderConfirmationClaim,
+  containsPaymentDetailsClaim,
+} from "@/lib/ai/defaults";
 import { generateReply } from "@/lib/ai/generate";
 import { retrieveKnowledge } from "@/lib/ai/knowledge";
 import { resolveProductPromptContext } from "@/lib/ai/product-context";
@@ -870,15 +874,17 @@ async function endRun(
 // ============================================================
 
 /**
- * generateAiAnswer detected the model fabricating an order confirmation
- * (never sent to the customer). Surface it in the Inbox the same way
+ * generateAiAnswer detected the model fabricating something it has no
+ * business inventing (an order confirmation, specific payment account
+ * numbers, ...). Surface it in the Inbox the same way
  * dispatchInboundToAiReply's handoff does, so it doesn't just vanish
- * into a log line — a real customer is mid-purchase with nobody now
+ * into a log line — a real customer is mid-conversation with nobody now
  * answering them.
  */
 async function notifyOwnerOfBlockedFabrication(
   db: AdminClient,
   run: FlowRunRow,
+  body: string,
 ): Promise<void> {
   if (run.conversation_id) {
     await db
@@ -886,9 +892,6 @@ async function notifyOwnerOfBlockedFabrication(
       .update({ status: "pending", updated_at: new Date().toISOString() })
       .eq("id", run.conversation_id);
   }
-  const body =
-    "El asistente iba a confirmar un pedido sin haberlo registrado " +
-    "realmente — se bloqueó el mensaje antes de enviarlo. Revísala en el Inbox.";
   try {
     await db.from("notifications").insert({
       account_id: run.account_id,
@@ -971,7 +974,27 @@ async function generateAiAnswer(
   // registrado..." from exactly this function with zero export, deal, or
   // owner notification. Apply the same regex backstop here.
   if (containsOrderConfirmationClaim(text)) {
-    await notifyOwnerOfBlockedFabrication(db, run);
+    await notifyOwnerOfBlockedFabrication(
+      db,
+      run,
+      "El asistente iba a confirmar un pedido sin haberlo registrado " +
+        "realmente — se bloqueó el mensaje antes de enviarlo. Revísala en el Inbox.",
+    );
+    return null;
+  }
+
+  // Confirmed live (2026-08-01): asked directly for payment details, the
+  // model invented a Nequi/Bancolombia number instead of admitting it
+  // didn't have one in context — a real customer could've paid a
+  // nonexistent account. See containsPaymentDetailsClaim's own comment.
+  if (containsPaymentDetailsClaim(text)) {
+    await notifyOwnerOfBlockedFabrication(
+      db,
+      run,
+      "El asistente iba a enviar datos de pago (número de cuenta) generados " +
+        "por IA, posiblemente incorrectos — se bloqueó el mensaje antes de " +
+        "enviarlo. Revísala en el Inbox.",
+    );
     return null;
   }
 

@@ -9,6 +9,22 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.7] — 2026-08-01
+
+### Fixed
+
+- **AI could fabricate payment account numbers**: confirmed live — a
+  customer asked for payment details in a free-text Q&A path, and the
+  model invented a Nequi/Daviplata/Bancolombia number instead of using
+  the real one, despite an explicit prompt instruction not to. The real
+  numbers only ever live in a flow's deterministic node text, never in
+  what the model generates, so `generateAiAnswer` now scans its own
+  output (`containsPaymentDetailsClaim`, same backstop pattern as the
+  existing order-confirmation-fabrication guard) and blocks + notifies
+  the owner instead of sending any AI-generated reply that pairs a
+  payment-method name with a specific account number.
+  `src/lib/ai/defaults.ts`, `src/lib/flows/engine.ts`.
+
 ## [0.25.6] — 2026-08-01
 
 ### Fixed

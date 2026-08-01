@@ -59,6 +59,32 @@ export function containsOrderConfirmationClaim(text: string): boolean {
   return ORDER_CONFIRMATION_PATTERNS.some((pattern) => pattern.test(text))
 }
 
+/**
+ * Same backstop philosophy as `containsOrderConfirmationClaim`, for a
+ * different real-money hallucination: confirmed live (2026-08-01) that
+ * a model, told in its own prompt not to invent payment account numbers
+ * "de memoria," did it anyway when a customer pressed for them —
+ * fabricated a Nequi/Daviplata/Bancolombia number that didn't match any
+ * real account. The real numbers only ever live in a flow's static
+ * `collect_payment_proof`/`send_message` node text, never in what the
+ * model generates — so any AI-generated reply that pairs a payment-
+ * method name with a number is necessarily either copied from the
+ * conversation history (fine, but the caller can't tell) or invented.
+ * Treating every such reply as suspect and blocking it is safer than
+ * trying to distinguish the two — the deterministic node is always
+ * available to actually send the real numbers.
+ */
+const PAYMENT_DETAILS_PATTERNS: RegExp[] = [
+  /\b(nequi|daviplata|davi\s*plata|bancolombia|bre-?b|davivienda)\b[\s\S]{0,40}\d{6,}/i,
+  /\d{6,}[\s\S]{0,40}\b(nequi|daviplata|davi\s*plata|bancolombia|bre-?b|davivienda)\b/i,
+]
+
+/** True if `text` pairs a payment-method name with a specific account
+ *  number — only a flow's deterministic node should ever do that. */
+export function containsPaymentDetailsClaim(text: string): boolean {
+  return PAYMENT_DETAILS_PATTERNS.some((pattern) => pattern.test(text))
+}
+
 /** Cap on generated reply length — keeps WhatsApp replies short and
  *  bounds token spend on the caller's own key. */
 export const MAX_OUTPUT_TOKENS = 1024
