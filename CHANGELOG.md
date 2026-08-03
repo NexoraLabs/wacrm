@@ -9,6 +9,23 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.8] — 2026-08-03
+
+### Fixed
+
+- **`collect_payment_proof` kept resending the full payment-methods
+  block regardless of what the customer said**: confirmed live on the
+  CRM QR account — a non-image reply that wasn't recognized as a
+  question (e.g. "no me interesa", "ya pagué") fell through to an
+  unconditional resend of the Nequi/Bancolombia prompt, so a customer
+  declining or claiming to have already paid just got the same payment
+  info repeated back. The text branch now classifies the reply first:
+  a decline gets a short goodbye and ends the run instead of pushing
+  payment info again; an "already paid, no photo" claim gets a
+  targeted nudge for the receipt photo instead of the whole block
+  re-sent. Everything else keeps the previous resend behavior.
+  `src/lib/flows/engine.ts`.
+
 ## [0.25.7] — 2026-08-01
 
 ### Fixed

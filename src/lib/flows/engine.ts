@@ -1180,6 +1180,60 @@ async function classifyCollectInputReply(
   }
 }
 
+/**
+ * Classifies a non-image text reply at a `collect_payment_proof` node.
+ * The prompt there already covers genuine questions (`looksLikeAQuestion`
+ * above) — this catches the other two cases that shouldn't just get the
+ * same payment-methods block re-sent: the customer backing out ("no me
+ * interesa", "ya no quiero") or claiming to have already paid without
+ * attaching the receipt photo ("ya pagué", "listo, hice la transferencia").
+ * Blindly re-sending the prompt for either read as the bot ignoring what
+ * the customer just said.
+ */
+async function classifyPaymentProofReplyIntent(
+  db: AdminClient,
+  accountId: string,
+  messageText: string,
+): Promise<"decline" | "already_paid" | "other"> {
+  const aiConfig = await loadAiConfig(db, accountId);
+  if (!aiConfig) return "other";
+
+  try {
+    const { text } = await generateReply({
+      config: aiConfig,
+      systemPrompt:
+        "You classify a single WhatsApp reply sent right after a " +
+        "customer was shown payment instructions and asked to send a " +
+        "photo of their payment receipt. Classify their reply as one " +
+        'of: "decline" — they are backing out / not interested / say no ' +
+        '("no me interesa", "ya no quiero", "no gracias", "cancela"); ' +
+        '"already_paid" — they say they already paid but did not attach ' +
+        'a photo ("ya pagué", "listo, hice la transferencia", "ya te ' +
+        'mandé la plata"); or "other" for anything else (confusion, ' +
+        "small talk, unrelated comment). Reply with ONLY a JSON object: " +
+        '{"intent": "decline"} or {"intent": "already_paid"} or ' +
+        '{"intent": "other"}. No prose, no markdown code fences.',
+      messages: [{ role: "user", content: messageText }],
+    });
+    const cleaned = text
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/, "")
+      .trim();
+    const parsed = JSON.parse(cleaned) as { intent?: unknown };
+    if (parsed.intent === "decline" || parsed.intent === "already_paid") {
+      return parsed.intent;
+    }
+    return "other";
+  } catch (err) {
+    console.error(
+      "[flows] payment_proof reply classification failed (defaulting to 'other'):",
+      err instanceof Error ? err.message : err,
+    );
+    return "other";
+  }
+}
+
 async function advanceFromNodeKey(
   db: AdminClient,
   run: FlowRunRow,
@@ -2296,6 +2350,61 @@ async function handleReplyForActiveRun(
           flow_run_id: run.id,
           outcome: "off_menu_answered",
         };
+      }
+    }
+    // Neither an image nor a question — before re-sending the payment
+    // block verbatim, check whether the customer is actually backing
+    // out or claiming to have already paid. Re-sending the same "here's
+    // how to pay" wall of text in either case reads as the bot ignoring
+    // them (this was happening live on the CRM QR account).
+    if (message.kind === "text") {
+      const intent = await classifyPaymentProofReplyIntent(
+        db,
+        run.account_id,
+        message.text,
+      );
+      if (intent === "decline") {
+        try {
+          const { whatsapp_message_id } = await engineSendText({
+            accountId: run.account_id,
+            userId: run.user_id,
+            conversationId: run.conversation_id!,
+            contactId: run.contact_id!,
+            text: "Entendido, ¡muchas gracias por tu tiempo! Si más adelante te interesa, aquí estaré 😊",
+          });
+          await logEvent(db, run.id, "message_sent", currentNode.node_key, {
+            node_type: "payment_proof_declined",
+            whatsapp_message_id,
+          });
+        } catch (err) {
+          await logEvent(db, run.id, "error", currentNode.node_key, {
+            reason: "payment_proof_decline_reply_failed",
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        }
+        await endRun(db, run.id, "completed", "customer_declined_at_payment");
+        return { consumed: true, flow_run_id: run.id, outcome: "completed" };
+      }
+      if (intent === "already_paid") {
+        try {
+          const { whatsapp_message_id } = await engineSendText({
+            accountId: run.account_id,
+            userId: run.user_id,
+            conversationId: run.conversation_id!,
+            contactId: run.contact_id!,
+            text: "¡Perfecto! Para confirmarlo solo necesito que me envíes la foto o captura del comprobante de pago 📸",
+          });
+          await logEvent(db, run.id, "message_sent", currentNode.node_key, {
+            node_type: "payment_proof_claims_paid",
+            whatsapp_message_id,
+          });
+        } catch (err) {
+          await logEvent(db, run.id, "error", currentNode.node_key, {
+            reason: "payment_proof_claims_paid_reply_failed",
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        }
+        return { consumed: true, flow_run_id: run.id, outcome: "fallback_fired" };
       }
     }
     try {
