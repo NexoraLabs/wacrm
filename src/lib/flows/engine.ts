@@ -152,6 +152,36 @@ export function findNodeKeyByText(
 }
 
 /**
+ * First `collect_payment_proof` node in a flow, if any — used to
+ * re-enter a returning customer (no active run) straight at the
+ * payment-verification step when they show renewed purchase intent.
+ * A flow with more than one such node picks whichever the Map yields
+ * first; v1 flows only ever build at most one.
+ */
+export function findPaymentProofNodeKey(
+  nodes: Map<string, { node_type: string }>,
+): string | null {
+  for (const [key, node] of nodes.entries()) {
+    if (node.node_type === "collect_payment_proof") return key;
+  }
+  return null;
+}
+
+/**
+ * Cheap, deterministic gate for "does this text from a returning
+ * customer (no active run) look like renewed payment/purchase intent" —
+ * used instead of an AI classification call so a past customer's every
+ * random message doesn't restart their flow. Deliberately loose (a false
+ * positive just re-sends the payment prompt, same cost as a customer
+ * genuinely asking to buy again); the real payoff is catching "ya
+ * pagué"/"aquí está el comprobante" style replies that today land on the
+ * generic AI auto-reply, which can't see images or verify a receipt at
+ * all.
+ */
+const PAYMENT_REENTRY_KEYWORDS =
+  /\b(pagu[eé]|pago|transferenc\w*|comprobante|nequi|daviplata|bancolombia|bre-?b|comprar\w*|c[oó]mo pago)\b/i;
+
+/**
  * QR-provider counterpart to `matchReplyId`. Baileys has no interactive
  * tap — `engineSendInteractiveButtons`/`List` (meta-send.ts) render the
  * options as a numbered text menu instead, so the customer's reply
@@ -1888,6 +1918,40 @@ export async function dispatchInboundToFlows(
             nodes,
             targetNodeKey,
           );
+        }
+      }
+
+      // A returning customer with no active run showing renewed
+      // payment/purchase intent (a photo, or explicit payment language)
+      // has no other path back to real receipt verification — outside
+      // an active run, the generic AI auto-reply takes over instead,
+      // and it can neither see images (buildConversationContext filters
+      // them out entirely) nor send the product's access link. Confirmed
+      // live: a repeat customer sent a receipt photo + "Ya pague" and
+      // the AI just asked for the photo again, oblivious it had already
+      // arrived. Re-enter their most recent flow at its
+      // `collect_payment_proof` node (if it has one) instead.
+      const paymentNodeKey = findPaymentProofNodeKey(nodes);
+      if (paymentNodeKey) {
+        const showsPaymentIntent =
+          input.message.kind === "image" ||
+          (input.message.kind === "text" &&
+            PAYMENT_REENTRY_KEYWORDS.test(input.message.text));
+        if (showsPaymentIntent) {
+          const { data: flowRow } = await db
+            .from("flows")
+            .select("*")
+            .eq("id", recentFlowId)
+            .maybeSingle();
+          if (flowRow) {
+            return startRunAtNode(
+              db,
+              flowRow as FlowRow,
+              input,
+              nodes,
+              paymentNodeKey,
+            );
+          }
         }
       }
     }

@@ -9,6 +9,26 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.11] — 2026-08-04
+
+### Fixed
+
+- **A returning customer (flow already completed once) had no way back
+  to receipt verification or the product's access link** — confirmed
+  live on CRM QR: a repeat customer sent a payment receipt photo and
+  "Ya pague", and the bot replied asking for the photo again as if
+  nothing had arrived. Root cause: a flow's `first_inbound_message`
+  trigger only fires once per contact, so any later message from that
+  contact (with no active run) fell through entirely to the generic AI
+  auto-reply — which filters out image messages from its context
+  (`buildConversationContext`) and has no receipt-verification or
+  access-link capability at all. `dispatchInboundToFlows` now detects
+  renewed payment/purchase intent from a returning contact with no
+  active run (an image, or payment-language text like "ya pagué" /
+  "comprobante" / "nequi") and re-enters their most recent flow at its
+  `collect_payment_proof` node if it has one, the same pattern already
+  used for a stale menu-button tap. `src/lib/flows/engine.ts`.
+
 ## [0.25.10] — 2026-08-04
 
 ### Fixed
