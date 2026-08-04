@@ -2073,13 +2073,20 @@ async function handleCollectPaymentProofReply(
     return { consumed: true, flow_run_id: run.id, outcome: outcome.outcome };
   }
 
+  const humanReason =
+    resultVar.reason === "vision_call_failed" ||
+    resultVar.reason === "image_download_failed"
+      ? "no pude leer bien la imagen"
+      : resultVar.reason;
+  const retryText = `No pude confirmar tu comprobante 😕 (${humanReason}). ¿Puedes enviarme de nuevo una foto clara y completa del comprobante de pago?`;
+
   try {
     await engineSendText({
       accountId: run.account_id,
       userId: run.user_id,
       conversationId: run.conversation_id!,
       contactId: run.contact_id!,
-      text: interpolateVars(cfg.prompt_text, run.vars),
+      text: retryText,
     });
   } catch (err) {
     await logEvent(db, run.id, "error", node.node_key, {

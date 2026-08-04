@@ -9,6 +9,27 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.9] — 2026-08-04
+
+### Fixed
+
+- **`collect_payment_proof` vision check rejected valid receipts as
+  "future-dated"**: confirmed live on the CRM QR account with two real
+  customers — the receipt-verification prompt (`src/lib/ai/receipt.ts`)
+  never told the vision model what today's real date is, so it judged
+  plausibility against its own (stale) training-data notion of "now"
+  and flagged real 2026-dated receipts as invalid. The prompt now
+  anchors on the real current date and only flags a date as implausible
+  if it's off by more than a few days, not just for being "today".
+- **Same node's retry reply just re-sent the entire payment-methods
+  block on an invalid receipt**: gave customers no indication their
+  photo was rejected or why, and looked like the bot ignored what they
+  sent (the case above: real payment, wrongly rejected, then blasted
+  with the Nequi/Bancolombia block again instead of an explanation).
+  The retry now sends a short message with the actual rejection reason
+  and asks for a clearer photo instead of repeating the full prompt.
+  `src/lib/flows/engine.ts`.
+
 ## [0.25.8] — 2026-08-03
 
 ### Fixed

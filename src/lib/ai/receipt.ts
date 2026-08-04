@@ -42,9 +42,11 @@ export async function analyzeReceiptImage(
       ? `The expected payment amount is ${options.expectedAmount} COP (Colombian pesos) — the receipt should show an amount at or above this.`
       : ''
     const contextLine = options.extraContext ? options.extraContext : ''
+    const todayLine = `Today's real date is ${new Date().toISOString().slice(0, 10)} — use this as the ground truth "today" when judging the receipt's date/time. Do NOT rely on your own training-data sense of the current date, since it is out of date. Only flag a receipt as invalid on date grounds if it is clearly implausible relative to this real date (e.g. years in the past/future) — do not reject it merely for being dated today or within the last few days.`
 
     const systemPrompt = [
       'You are a fraud-aware assistant checking whether a WhatsApp image is a real Colombian payment confirmation screenshot (Nequi, Bancolombia, Daviplata, or a Bre-B / llave transfer).',
+      todayLine,
       amountLine,
       contextLine,
       'Look for: a transaction/confirmation screen from one of those apps, a visible amount, a date/time, and a reference or transaction id. Flag as invalid: unrelated photos, blank/blurry images, screenshots of a different app, obvious edits or inconsistent fonts/alignment, or an amount clearly below what was expected.',
