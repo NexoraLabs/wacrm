@@ -1182,19 +1182,23 @@ async function classifyCollectInputReply(
 
 /**
  * Classifies a non-image text reply at a `collect_payment_proof` node.
- * The prompt there already covers genuine questions (`looksLikeAQuestion`
- * above) — this catches the other two cases that shouldn't just get the
- * same payment-methods block re-sent: the customer backing out ("no me
- * interesa", "ya no quiero") or claiming to have already paid without
- * attaching the receipt photo ("ya pagué", "listo, hice la transferencia").
- * Blindly re-sending the prompt for either read as the bot ignoring what
- * the customer just said.
+ * The prompt there already covers formally-phrased questions
+ * (`looksLikeAQuestion` above, e.g. "?" or a leading interrogative word)
+ * — this catches the cases that slip past that regex and shouldn't just
+ * get the same payment-methods block re-sent: the customer backing out
+ * ("no me interesa", "ya no quiero"), claiming to have already paid
+ * without attaching the receipt photo ("ya pagué", "listo, hice la
+ * transferencia"), or raising a colloquially-phrased concern/question
+ * that has no "?" or interrogative starter (e.g. "eso si es real",
+ * "no entiendo por que no sirvio", "yo si mande la plata mira bien").
+ * Blindly re-sending the prompt for any of these read as the bot
+ * ignoring what the customer just said.
  */
 async function classifyPaymentProofReplyIntent(
   db: AdminClient,
   accountId: string,
   messageText: string,
-): Promise<"decline" | "already_paid" | "other"> {
+): Promise<"decline" | "already_paid" | "question" | "other"> {
   const aiConfig = await loadAiConfig(db, accountId);
   if (!aiConfig) return "other";
 
@@ -1208,11 +1212,18 @@ async function classifyPaymentProofReplyIntent(
         'of: "decline" — they are backing out / not interested / say no ' +
         '("no me interesa", "ya no quiero", "no gracias", "cancela"); ' +
         '"already_paid" — they say they already paid but did not attach ' +
-        'a photo ("ya pagué", "listo, hice la transferencia", "ya te ' +
-        'mandé la plata"); or "other" for anything else (confusion, ' +
+        'a photo, with no other question or concern attached ("ya pagué", ' +
+        '"listo, hice la transferencia", "ya te mandé la plata"); ' +
+        '"question" — they are asking something or raising a concern, ' +
+        "even without a \"?\" or a formal question word — including " +
+        "disputing a rejected receipt, asking why something failed, or " +
+        'any other doubt about the product or payment ("eso si es real", ' +
+        '"no entiendo por que no sirvio", "yo si pague mira bien", "raro"); ' +
+        'or "other" for anything else (confusion with no real content, ' +
         "small talk, unrelated comment). Reply with ONLY a JSON object: " +
         '{"intent": "decline"} or {"intent": "already_paid"} or ' +
-        '{"intent": "other"}. No prose, no markdown code fences.',
+        '{"intent": "question"} or {"intent": "other"}. No prose, no ' +
+        "markdown code fences.",
       messages: [{ role: "user", content: messageText }],
     });
     const cleaned = text
@@ -1221,7 +1232,11 @@ async function classifyPaymentProofReplyIntent(
       .replace(/```\s*$/, "")
       .trim();
     const parsed = JSON.parse(cleaned) as { intent?: unknown };
-    if (parsed.intent === "decline" || parsed.intent === "already_paid") {
+    if (
+      parsed.intent === "decline" ||
+      parsed.intent === "already_paid" ||
+      parsed.intent === "question"
+    ) {
       return parsed.intent;
     }
     return "other";
@@ -1232,6 +1247,51 @@ async function classifyPaymentProofReplyIntent(
     );
     return "other";
   }
+}
+
+/**
+ * Answers a customer's question/concern raised while suspended at a
+ * `collect_payment_proof` node — reached both from a formally-phrased
+ * question (`looksLikeAQuestion`) and from `classifyPaymentProofReplyIntent`
+ * returning `"question"` for a colloquial one. Returns null (rather than a
+ * result) when the AI produced nothing usable, so the caller falls through
+ * to its own next step instead of silently dropping the reply.
+ */
+async function answerPaymentProofQuestion(
+  db: AdminClient,
+  run: FlowRunRow,
+  node: FlowNodeRow,
+  metaMessageId: string,
+): Promise<DispatchInboundResult | null> {
+  let aiResult: { whatsapp_message_id: string } | null = null;
+  try {
+    aiResult = await generateAiAnswer(
+      db,
+      run,
+      metaMessageId,
+      "Responde breve (máximo 3 líneas) la duda o inquietud del cliente " +
+        "sobre el producto o su pago, usando el contexto y el historial. " +
+        "Si pregunta por qué su comprobante no fue aceptado, explica que " +
+        "la verificación automática a veces falla y pídele que envíe una " +
+        "foto clara y completa del comprobante. Termina invitándolo a " +
+        "enviar la foto del comprobante de pago cuando esté listo.",
+    );
+  } catch (err) {
+    await logEvent(db, run.id, "error", node.node_key, {
+      reason: "payment_proof_question_answer_failed",
+      detail: err instanceof Error ? err.message : String(err),
+    });
+  }
+  if (!aiResult) return null;
+  await logEvent(db, run.id, "message_sent", node.node_key, {
+    node_type: "payment_proof_question_answer",
+    whatsapp_message_id: aiResult.whatsapp_message_id,
+  });
+  return {
+    consumed: true,
+    flow_run_id: run.id,
+    outcome: "off_menu_answered",
+  };
 }
 
 async function advanceFromNodeKey(
@@ -2331,45 +2391,36 @@ async function handleReplyForActiveRun(
     // mirrors the generic off-menu-answer path below, scoped to this node
     // type since the branch above returns before reaching that one.
     if (message.kind === "text" && looksLikeAQuestion(message.text)) {
-      let aiResult: { whatsapp_message_id: string } | null = null;
-      try {
-        aiResult = await generateAiAnswer(
-          db,
-          run,
-          message.meta_message_id,
-          "Responde breve (máximo 3 líneas) la duda del cliente sobre el " +
-            "producto usando el contexto y el historial. Termina invitándolo " +
-            "a enviar la foto del comprobante de pago cuando esté listo.",
-        );
-      } catch (err) {
-        await logEvent(db, run.id, "error", currentNode.node_key, {
-          reason: "payment_proof_question_answer_failed",
-          detail: err instanceof Error ? err.message : String(err),
-        });
-      }
-      if (aiResult) {
-        await logEvent(db, run.id, "message_sent", currentNode.node_key, {
-          node_type: "payment_proof_question_answer",
-          whatsapp_message_id: aiResult.whatsapp_message_id,
-        });
-        return {
-          consumed: true,
-          flow_run_id: run.id,
-          outcome: "off_menu_answered",
-        };
-      }
+      const answered = await answerPaymentProofQuestion(
+        db,
+        run,
+        currentNode,
+        message.meta_message_id,
+      );
+      if (answered) return answered;
     }
-    // Neither an image nor a question — before re-sending the payment
-    // block verbatim, check whether the customer is actually backing
-    // out or claiming to have already paid. Re-sending the same "here's
-    // how to pay" wall of text in either case reads as the bot ignoring
-    // them (this was happening live on the CRM QR account).
+    // Neither an image nor a formally-phrased question — before
+    // re-sending the payment block verbatim, classify what the customer
+    // actually said: backing out, claiming to have already paid, or a
+    // colloquially-phrased question/concern the regex above missed (e.g.
+    // disputing a rejected receipt with no "?"). Re-sending the same
+    // "here's how to pay" wall of text for any of these reads as the bot
+    // ignoring them (this was happening live on the CRM QR account).
     if (message.kind === "text") {
       const intent = await classifyPaymentProofReplyIntent(
         db,
         run.account_id,
         message.text,
       );
+      if (intent === "question") {
+        const answered = await answerPaymentProofQuestion(
+          db,
+          run,
+          currentNode,
+          message.meta_message_id,
+        );
+        if (answered) return answered;
+      }
       if (intent === "decline") {
         try {
           const { whatsapp_message_id } = await engineSendText({

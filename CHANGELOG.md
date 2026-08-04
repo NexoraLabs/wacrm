@@ -9,6 +9,22 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.10] — 2026-08-04
+
+### Fixed
+
+- **`collect_payment_proof` only recognized formally-phrased questions
+  ("?" or a leading interrogative word) while waiting for a receipt
+  photo** — a colloquial concern with neither (e.g. disputing a
+  wrongly-rejected receipt, "eso si es real", "no entiendo por que no
+  sirvio") fell through to the generic "already paid" canned reply or
+  the payment block resend instead of getting a real answer. The
+  reply-intent classifier (`classifyPaymentProofReplyIntent`) now has a
+  `"question"` category alongside decline/already_paid/other, and both
+  question paths (the regex fast-path and this new classified one) share
+  one AI-answer helper (`answerPaymentProofQuestion`) that's aware it
+  may be answering a rejected-receipt complaint. `src/lib/flows/engine.ts`.
+
 ## [0.25.9] — 2026-08-04
 
 ### Fixed
