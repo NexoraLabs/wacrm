@@ -42,10 +42,17 @@ function requireSocket(configId: string) {
 export async function sendTextMessage(args: {
   configId: string
   to: string
+  // The contact's exact `contacts.wa_jid` (see migration 052), when
+  // known — sent to verbatim instead of reconstructing a JID from
+  // `to`, which silently misdelivers for LID-addressed contacts (see
+  // jid.ts's resolveInboundPhone doc comment). Falls back to
+  // phoneToJid(to) for contacts with no stored JID yet (pre-fix rows,
+  // manually-added/CSV-imported contacts).
+  toJid?: string
   text: string
 }): Promise<QrSendResult> {
   const sock = requireSocket(args.configId)
-  const jid = phoneToJid(args.to)
+  const jid = args.toJid || phoneToJid(args.to)
   const result = await enqueueSend(args.configId, () =>
     sock.sendMessage(jid, { text: args.text }),
   )
@@ -57,13 +64,15 @@ export async function sendTextMessage(args: {
 export async function sendMediaMessage(args: {
   configId: string
   to: string
+  // See sendTextMessage's toJid doc above.
+  toJid?: string
   kind: MediaKind
   link: string
   caption?: string
   filename?: string
 }): Promise<QrSendResult> {
   const sock = requireSocket(args.configId)
-  const jid = phoneToJid(args.to)
+  const jid = args.toJid || phoneToJid(args.to)
 
   const content =
     args.kind === 'image'

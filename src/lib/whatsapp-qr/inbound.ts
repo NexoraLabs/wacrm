@@ -173,6 +173,7 @@ export async function handleInboundBaileysMessage(
     undefined,
     configId,
     precomputedMediaUrl,
+    waMsg.key.remoteJid,
   )
 }
 

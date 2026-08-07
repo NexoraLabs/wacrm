@@ -9,6 +9,27 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.15] — 2026-08-07
+
+### Fixed
+
+- **QR/Baileys numbers silently never delivered replies to a chunk of
+  real customers** — WhatsApp's privacy-preserving LID addressing
+  sometimes never reveals a contact's real phone number to a business
+  number, even after several exchanged messages. Outbound QR sends
+  reconstructed the recipient's WhatsApp address from the stored
+  `contacts.phone`, which for these contacts held fabricated LID
+  digits, not a real number — WhatsApp silently dropped every reply
+  with no error, while the CRM showed the bot's messages as "sent".
+  Confirmed live: ~20% of a recent batch of new contacts were affected.
+  Fixed by persisting the exact inbound WhatsApp JID
+  (`contacts.wa_jid`, migration `052_contacts_wa_jid.sql`) on every
+  message and addressing replies to it directly instead of
+  reconstructing one from the phone field. `src/lib/whatsapp-qr/send.ts`,
+  `src/lib/whatsapp-qr/inbound.ts`, `src/app/api/whatsapp/webhook/route.ts`,
+  `src/lib/flows/meta-send.ts`, `src/lib/automations/meta-send.ts`,
+  `src/lib/whatsapp/send-message.ts`.
+
 ## [0.25.14] — 2026-08-07
 
 ### Fixed

@@ -91,7 +91,7 @@ export async function engineSendMedia(
 
   const { data: contact, error: contactErr } = await db
     .from('contacts')
-    .select('id, phone')
+    .select('id, phone, wa_jid')
     .eq('id', args.contactId)
     .eq('account_id', args.accountId)
     .maybeSingle()
@@ -116,6 +116,7 @@ export async function engineSendMedia(
       const r = await sendQrMediaMessage({
         configId: config.id,
         to: phone,
+        toJid: contact.wa_jid || undefined,
         kind: args.kind,
         link: args.link,
         caption: args.caption,
@@ -200,7 +201,7 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
   // new tenancy column.
   const { data: contact, error: contactErr } = await db
     .from('contacts')
-    .select('id, phone')
+    .select('id, phone, wa_jid')
     .eq('id', input.contactId)
     .eq('account_id', input.accountId)
     .maybeSingle()
@@ -240,7 +241,12 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
       return r.messageId
     }
     if (config.provider === 'qr') {
-      const r = await sendQrTextMessage({ configId: config.id, to: phone, text: input.text })
+      const r = await sendQrTextMessage({
+        configId: config.id,
+        to: phone,
+        toJid: contact.wa_jid || undefined,
+        text: input.text,
+      })
       return r.messageId
     }
     const r = await sendTextMessage({

@@ -589,6 +589,10 @@ export async function processMessage(
   // parseMessageContent's precomputedMediaUrl param. Undefined for the
   // Meta webhook path (unused).
   precomputedMediaUrl?: string,
+  // QR/Baileys callers pass the exact inbound `key.remoteJid` here —
+  // see findOrCreateContact's waJid param and migration 052. Undefined
+  // for the Meta webhook path (no JID concept).
+  waJid?: string,
 ) {
   const senderPhone = normalizePhone(message.from)
   const contactName = contact.profile.name
@@ -598,7 +602,8 @@ export async function processMessage(
     accountId,
     configOwnerUserId,
     senderPhone,
-    contactName
+    contactName,
+    waJid
   )
   if (!contactOutcome) return
   const contactRecord = contactOutcome.contact
@@ -1091,7 +1096,13 @@ async function findOrCreateContact(
   accountId: string,
   configOwnerUserId: string,
   phone: string,
-  name: string
+  name: string,
+  // QR/Baileys only — the exact `key.remoteJid` this message arrived
+  // on. Persisted so outbound sends can address this contact directly
+  // instead of reconstructing a JID from `phone`, which is wrong for
+  // LID-addressed contacts (see migration 052). Undefined for the Meta
+  // Cloud API path, which has no JID concept.
+  waJid?: string,
 ): Promise<ContactOutcome | null> {
   // Find an existing contact for this account by phone. The shared
   // helper pre-filters in SQL by the last-8-digit suffix (so we don't
@@ -1106,12 +1117,16 @@ async function findOrCreateContact(
   )
 
   if (existingContact) {
-    // Update name if it changed
-    if (name && name !== existingContact.name) {
+    const updates: Record<string, string> = {}
+    if (name && name !== existingContact.name) updates.name = name
+    if (waJid && waJid !== existingContact.wa_jid) updates.wa_jid = waJid
+    if (Object.keys(updates).length > 0) {
+      updates.updated_at = new Date().toISOString()
       await supabaseAdmin()
         .from('contacts')
-        .update({ name, updated_at: new Date().toISOString() })
+        .update(updates)
         .eq('id', existingContact.id)
+      Object.assign(existingContact, updates)
     }
     return { contact: existingContact, wasCreated: false }
   }
@@ -1127,6 +1142,7 @@ async function findOrCreateContact(
       user_id: configOwnerUserId,
       phone,
       name: name || phone,
+      ...(waJid ? { wa_jid: waJid } : {}),
     })
     .select()
     .single()

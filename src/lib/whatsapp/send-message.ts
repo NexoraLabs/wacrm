@@ -335,6 +335,7 @@ export async function sendMessageToConversation(
           ? await sendQrMediaMessage({
               configId: config.id,
               to: phone,
+              toJid: contact.wa_jid || undefined,
               kind: messageType as MediaKind,
               link: mediaUrl!,
               caption: contentText || undefined,
@@ -354,7 +355,12 @@ export async function sendMessageToConversation(
     }
     const result =
       config.provider === 'qr'
-        ? await sendQrTextMessage({ configId: config.id, to: phone, text: contentText! })
+        ? await sendQrTextMessage({
+            configId: config.id,
+            to: phone,
+            toJid: contact.wa_jid || undefined,
+            text: contentText!,
+          })
         : await sendTextMessage({
             phoneNumberId: config.phone_number_id,
             accessToken,

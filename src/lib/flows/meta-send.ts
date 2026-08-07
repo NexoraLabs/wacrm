@@ -74,7 +74,7 @@ export async function engineSendText(
 
   const { data: contact, error: contactErr } = await db
     .from('contacts')
-    .select('id, phone')
+    .select('id, phone, wa_jid')
     .eq('id', args.contactId)
     .eq('account_id', args.accountId)
     .maybeSingle()
@@ -97,7 +97,12 @@ export async function engineSendText(
 
   const attempt = async (phone: string): Promise<string> => {
     if (config.provider === 'qr') {
-      const r = await sendQrTextMessage({ configId: config.id, to: phone, text: args.text })
+      const r = await sendQrTextMessage({
+        configId: config.id,
+        to: phone,
+        toJid: contact.wa_jid || undefined,
+        text: args.text,
+      })
       return r.messageId
     }
     const r = await sendTextMessage({
@@ -184,7 +189,7 @@ export async function engineSendMedia(
 
   const { data: contact, error: contactErr } = await db
     .from('contacts')
-    .select('id, phone')
+    .select('id, phone, wa_jid')
     .eq('id', args.contactId)
     .eq('account_id', args.accountId)
     .maybeSingle()
@@ -210,6 +215,7 @@ export async function engineSendMedia(
       const r = await sendQrMediaMessage({
         configId: config.id,
         to: phone,
+        toJid: contact.wa_jid || undefined,
         kind: args.kind,
         link: args.link,
         caption: args.caption,
@@ -345,7 +351,7 @@ async function sendInteractiveViaMeta(
   // Migration 017 moved both tables to account-scoped tenancy.
   const { data: contact, error: contactErr } = await db
     .from('contacts')
-    .select('id, phone')
+    .select('id, phone, wa_jid')
     .eq('id', input.contactId)
     .eq('account_id', input.accountId)
     .maybeSingle()
@@ -370,7 +376,7 @@ async function sendInteractiveViaMeta(
   // (a number or the option's own title) as if they'd tapped it. See
   // src/lib/flows/engine.ts.
   if (config.provider === 'qr') {
-    return sendInteractiveAsQrText(db, config.id, sanitized, input)
+    return sendInteractiveAsQrText(db, config.id, sanitized, contact.wa_jid || undefined, input)
   }
 
   const accessToken = decrypt(config.access_token)
@@ -491,10 +497,11 @@ async function sendInteractiveAsQrText(
   db: ReturnType<typeof supabaseAdmin>,
   configId: string,
   toPhone: string,
+  toJid: string | undefined,
   input: SendInput,
 ): Promise<{ whatsapp_message_id: string }> {
   const text = renderInteractiveAsText(input)
-  const { messageId } = await sendQrTextMessage({ configId, to: toPhone, text })
+  const { messageId } = await sendQrTextMessage({ configId, to: toPhone, toJid, text })
 
   const { error: msgErr } = await db.from('messages').insert({
     conversation_id: input.conversationId,
