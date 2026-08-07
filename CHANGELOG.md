@@ -9,6 +9,25 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.13] — 2026-08-07
+
+### Fixed
+
+- **`collect_payment_proof` blasted the payment-methods block back for
+  almost anything the customer typed** — confirmed live on CRM QR:
+  replies like "Gracias", "Bueno", "Verdad", "10.000", or a genuine
+  off-topic question ("¿tienes curso de celulares?") all got the exact
+  same canned wall of payment info re-sent, reading as the bot ignoring
+  the customer. Any text reply that isn't a decline or an "already
+  paid" claim is now answered by AI using the product context and
+  conversation history instead. `src/lib/flows/engine.ts`.
+- **A confirmed payment now resets the AI auto-reply cap** for that
+  conversation — previously, a customer who used up their pre-purchase
+  AI-reply allowance got permanently silenced, including for real
+  post-purchase questions ("¿cómo veo el curso?", "¿qué precio tiene
+  el otro?"). Skipped when a human agent already owns the thread.
+  `src/lib/flows/engine.ts`.
+
 ## [0.25.12] — 2026-08-06
 
 ### Added

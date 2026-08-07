@@ -1280,12 +1280,17 @@ async function classifyPaymentProofReplyIntent(
 }
 
 /**
- * Answers a customer's question/concern raised while suspended at a
- * `collect_payment_proof` node — reached both from a formally-phrased
- * question (`looksLikeAQuestion`) and from `classifyPaymentProofReplyIntent`
- * returning `"question"` for a colloquial one. Returns null (rather than a
- * result) when the AI produced nothing usable, so the caller falls through
- * to its own next step instead of silently dropping the reply.
+ * Answers whatever the customer just typed while suspended at a
+ * `collect_payment_proof` node — a formally-phrased question
+ * (`looksLikeAQuestion`), a colloquial one, or genuinely anything else
+ * (small talk, an acknowledgement, an ambiguous number). Used as the
+ * default response for any non-image text here instead of blindly
+ * re-sending the payment-methods block, which reads as the bot ignoring
+ * the customer no matter what they said (this was happening live on the
+ * CRM QR account — real replies like "Gracias", "Verdad", "10.000" all
+ * got the same canned payment wall back). Returns null (rather than a
+ * result) when the AI produced nothing usable, so the caller falls
+ * through to its own next step instead of silently dropping the reply.
  */
 async function answerPaymentProofQuestion(
   db: AdminClient,
@@ -1299,12 +1304,15 @@ async function answerPaymentProofQuestion(
       db,
       run,
       metaMessageId,
-      "Responde breve (máximo 3 líneas) la duda o inquietud del cliente " +
-        "sobre el producto o su pago, usando el contexto y el historial. " +
-        "Si pregunta por qué su comprobante no fue aceptado, explica que " +
-        "la verificación automática a veces falla y pídele que envíe una " +
-        "foto clara y completa del comprobante. Termina invitándolo a " +
-        "enviar la foto del comprobante de pago cuando esté listo.",
+      "Responde breve (máximo 3 líneas) al mensaje del cliente, usando el " +
+        "contexto del producto y el historial. Puede ser una pregunta, una " +
+        "inquietud, o solo un comentario/agradecimiento — respóndelo de " +
+        "forma natural y acorde a lo que dijo; no repitas los medios de " +
+        "pago a menos que los vuelva a pedir. Si pregunta por qué su " +
+        "comprobante no fue aceptado, explica que la verificación " +
+        "automática a veces falla y pídele una foto clara y completa. " +
+        "Termina invitándolo a enviar la foto del comprobante de pago " +
+        "cuando esté listo.",
     );
   } catch (err) {
     await logEvent(db, run.id, "error", node.node_key, {
@@ -2176,6 +2184,29 @@ async function handleCollectPaymentProofReply(
   });
 
   if (resultVar.is_valid) {
+    // A confirmed payment resets the AI auto-reply cap for this
+    // conversation (see src/lib/ai/auto-reply.ts) — that cap exists to
+    // stop a runaway pre-purchase chat, not to leave a paying customer's
+    // post-purchase questions ("cómo veo el curso", "qué precio tiene
+    // el otro") permanently unanswered because they used up their
+    // allowance before they'd even paid. Only clears the sticky disable
+    // when no human agent has claimed the thread — an explicit handoff
+    // to a person is a separate decision this shouldn't override.
+    // Best-effort: a failed reset just means the existing cap/disabled
+    // state carries over, same as before this fix existed.
+    if (run.conversation_id) {
+      const { error: resetErr } = await db
+        .from("conversations")
+        .update({ ai_reply_count: 0, ai_autoreply_disabled: false })
+        .eq("id", run.conversation_id)
+        .is("assigned_agent_id", null);
+      if (resetErr) {
+        await logEvent(db, run.id, "error", node.node_key, {
+          reason: "payment_confirmed_ai_cap_reset_failed",
+          detail: resetErr.message,
+        });
+      }
+    }
     const outcome = await advanceFromNodeKey(
       db,
       run,
@@ -2450,10 +2481,8 @@ async function handleReplyForActiveRun(
     // capture to attempt, so just resend the prompt without burning an
     // attempt (attempts are only counted against actual image submissions).
     const cfg = currentNode.config as unknown as CollectPaymentProofNodeConfig;
-    // If it reads like a genuine question (not just "ok"/"listo"), answer
-    // it with AI instead of silently re-sending the same payment prompt —
-    // mirrors the generic off-menu-answer path below, scoped to this node
-    // type since the branch above returns before reaching that one.
+    // Obvious question shape ("?" or a leading interrogative word) skips
+    // straight to an AI answer — no need to spend a classify call first.
     if (message.kind === "text" && looksLikeAQuestion(message.text)) {
       const answered = await answerPaymentProofQuestion(
         db,
@@ -2463,20 +2492,22 @@ async function handleReplyForActiveRun(
       );
       if (answered) return answered;
     }
-    // Neither an image nor a formally-phrased question — before
-    // re-sending the payment block verbatim, classify what the customer
-    // actually said: backing out, claiming to have already paid, or a
-    // colloquially-phrased question/concern the regex above missed (e.g.
-    // disputing a rejected receipt with no "?"). Re-sending the same
-    // "here's how to pay" wall of text for any of these reads as the bot
-    // ignoring them (this was happening live on the CRM QR account).
+    // Anything else still needs classifying — not to decide whether to
+    // answer (we now answer everything that isn't a decline / already-paid
+    // claim), but to catch those two deterministic cases, which need their
+    // own reply and shouldn't be handed to the LLM. Every other reply —
+    // colloquial question, small talk, "Gracias", "Verdad", a bare number —
+    // gets answered by AI instead of the payment block being blindly
+    // re-sent, which reads as the bot ignoring whatever the customer just
+    // said (this was happening live on the CRM QR account: "Gracias",
+    // "Bueno", "10.000" etc. all got the same canned wall of text back).
     if (message.kind === "text") {
       const intent = await classifyPaymentProofReplyIntent(
         db,
         run.account_id,
         message.text,
       );
-      if (intent === "question") {
+      if (intent !== "decline" && intent !== "already_paid") {
         const answered = await answerPaymentProofQuestion(
           db,
           run,
