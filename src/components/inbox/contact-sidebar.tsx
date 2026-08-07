@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
@@ -16,11 +17,30 @@ import {
   StickyNote,
   Plus,
   PackageCheck,
+  X,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { format } from "date-fns";
 import { RegisterOrderDialog } from "./register-order-dialog";
+
+const TAG_COLORS = [
+  "#ef4444",
+  "#f97316",
+  "#f59e0b",
+  "#10b981",
+  "#06b6d4",
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
+];
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -33,17 +53,22 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
   const [deals, setDeals] = useState<Deal[]>([]);
   const [notes, setNotes] = useState<ContactNote[]>([]);
   const [tags, setTags] = useState<(Tag & { contact_tag_id: string })[]>([]);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
   const [registerOrderOpen, setRegisterOrderOpen] = useState(false);
+  const [newTagName, setNewTagName] = useState("");
+  const [newTagColor, setNewTagColor] = useState(TAG_COLORS[3]);
+  const [tagBusy, setTagBusy] = useState(false);
 
   const fetchContactData = useCallback(async () => {
     if (!contact) return;
 
     const supabase = createClient();
 
-    // Fetch deals, notes, and tags in parallel
-    const [dealsRes, notesRes, tagsRes] = await Promise.all([
+    // Fetch deals, notes, this contact's tags, and every account tag
+    // (for the add-tag picker) in parallel
+    const [dealsRes, notesRes, tagsRes, allTagsRes] = await Promise.all([
       supabase
         .from("deals")
         .select("*, stage:pipeline_stages(*)")
@@ -58,6 +83,7 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
         .from("contact_tags")
         .select("id, tag_id, tags(*)")
         .eq("contact_id", contact.id),
+      supabase.from("tags").select("*").order("name"),
     ]);
 
     if (dealsRes.data) setDeals(dealsRes.data);
@@ -71,6 +97,7 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
         }));
       setTags(mapped);
     }
+    if (allTagsRes.data) setAllTags(allTagsRes.data);
   }, [contact]);
 
   // Load on contact change. setContactData/setTags run inside async
@@ -89,6 +116,83 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
     // React Compiler's inference agrees with the manual dep list —
     // fixes the `preserve-manual-memoization` lint error.
   }, [contact]);
+
+  const toggleTag = useCallback(
+    async (tag: Tag) => {
+      if (!contact || tagBusy) return;
+      setTagBusy(true);
+      const supabase = createClient();
+      const existing = tags.find((t) => t.id === tag.id);
+
+      if (existing) {
+        const { error } = await supabase
+          .from("contact_tags")
+          .delete()
+          .eq("id", existing.contact_tag_id);
+        if (error) {
+          toast.error("No se pudo quitar la etiqueta");
+        } else {
+          setTags((prev) => prev.filter((t) => t.id !== tag.id));
+        }
+      } else {
+        const { data, error } = await supabase
+          .from("contact_tags")
+          .insert({ contact_id: contact.id, tag_id: tag.id })
+          .select("id")
+          .single();
+        if (error) {
+          toast.error("No se pudo agregar la etiqueta");
+        } else {
+          setTags((prev) => [...prev, { ...tag, contact_tag_id: data.id }]);
+        }
+      }
+      setTagBusy(false);
+    },
+    [contact, tagBusy, tags]
+  );
+
+  const handleCreateTag = useCallback(async () => {
+    if (!contact || !accountId || !newTagName.trim() || tagBusy) return;
+    setTagBusy(true);
+    const supabase = createClient();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const user = session?.user;
+
+    const { data: tag, error } = await supabase
+      .from("tags")
+      .insert({
+        user_id: user?.id,
+        account_id: accountId,
+        name: newTagName.trim(),
+        color: newTagColor,
+      })
+      .select()
+      .single();
+
+    if (error || !tag) {
+      toast.error("No se pudo crear la etiqueta");
+      setTagBusy(false);
+      return;
+    }
+
+    const { data: ct, error: ctError } = await supabase
+      .from("contact_tags")
+      .insert({ contact_id: contact.id, tag_id: tag.id })
+      .select("id")
+      .single();
+
+    if (ctError) {
+      toast.error("Etiqueta creada, pero no se pudo asignar al contacto");
+    } else {
+      setTags((prev) => [...prev, { ...tag, contact_tag_id: ct.id }]);
+    }
+    setAllTags((prev) => [...prev, tag].sort((a, b) => a.name.localeCompare(b.name)));
+    setNewTagName("");
+    setNewTagColor(TAG_COLORS[3]);
+    setTagBusy(false);
+  }, [contact, accountId, newTagName, newTagColor, tagBusy]);
 
   const handleAddNote = useCallback(async () => {
     if (!contact || !newNote.trim()) return;
@@ -195,9 +299,101 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
 
           {/* Tags */}
           <div>
-            <div className="flex items-center gap-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              <TagIcon className="h-3 w-3" />
-              Tags
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                <TagIcon className="h-3 w-3" />
+                Tags
+              </div>
+              <Popover>
+                <PopoverTrigger
+                  render={
+                    <button
+                      type="button"
+                      className="rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      aria-label="Agregar o crear etiqueta"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                    </button>
+                  }
+                />
+                <PopoverContent align="end" className="w-64">
+                  <div className="max-h-48 space-y-1 overflow-y-auto">
+                    {allTags.length === 0 ? (
+                      <p className="px-1 py-1 text-xs text-muted-foreground">
+                        No hay etiquetas todavía — crea la primera abajo.
+                      </p>
+                    ) : (
+                      allTags.map((tag) => {
+                        const selected = tags.some((t) => t.id === tag.id);
+                        return (
+                          <button
+                            key={tag.id}
+                            type="button"
+                            disabled={tagBusy}
+                            onClick={() => toggleTag(tag)}
+                            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-muted disabled:opacity-50"
+                          >
+                            <span
+                              className="size-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: tag.color }}
+                            />
+                            <span className="flex-1 truncate">{tag.name}</span>
+                            {selected && (
+                              <Check className="h-3 w-3 shrink-0 text-primary" />
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  <div className="mt-1 border-t border-border pt-2.5">
+                    <Input
+                      placeholder="Nueva etiqueta..."
+                      value={newTagName}
+                      onChange={(e) => setNewTagName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleCreateTag();
+                      }}
+                      disabled={tagBusy}
+                      maxLength={40}
+                      className="h-8 text-xs"
+                    />
+                    <div className="mt-2 flex items-center justify-between">
+                      <div className="flex gap-1">
+                        {TAG_COLORS.map((color) => (
+                          <button
+                            key={color}
+                            type="button"
+                            onClick={() => setNewTagColor(color)}
+                            aria-label={`Usar color ${color}`}
+                            aria-pressed={newTagColor === color}
+                            className={cn(
+                              "size-4 rounded-full transition-transform hover:scale-110",
+                              newTagColor === color &&
+                                "outline outline-2 outline-offset-1 outline-primary"
+                            )}
+                            style={{ backgroundColor: color }}
+                          />
+                        ))}
+                      </div>
+                      <Button
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={handleCreateTag}
+                        disabled={tagBusy || !newTagName.trim()}
+                      >
+                        {tagBusy ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Plus className="h-3 w-3" />
+                        )}
+                        Crear
+                      </Button>
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="mt-2 flex flex-wrap gap-1">
               {tags.length === 0 ? (
@@ -206,13 +402,21 @@ export function ContactSidebar({ contact, conversationId }: ContactSidebarProps)
                 tags.map((tag) => (
                   <span
                     key={tag.contact_tag_id}
-                    className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                    className="group inline-flex items-center gap-1 rounded-full py-0.5 pr-1 pl-2 text-[10px] font-medium"
                     style={{
                       backgroundColor: `${tag.color}20`,
                       color: tag.color,
                     }}
                   >
                     {tag.name}
+                    <button
+                      type="button"
+                      onClick={() => toggleTag(tag)}
+                      aria-label={`Quitar ${tag.name}`}
+                      className="rounded-full p-0.5 opacity-60 hover:bg-black/10 hover:opacity-100 dark:hover:bg-white/10"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
                   </span>
                 ))
               )}

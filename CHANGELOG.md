@@ -9,6 +9,18 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.12] — 2026-08-06
+
+### Added
+
+- **Inbox contact sidebar: tags are now addable/creatable in place**,
+  not just displayed read-only. A "+" next to the Tags heading opens a
+  picker listing every account tag (click to add/remove from the open
+  contact) plus an inline name + color row to create a brand-new tag
+  and attach it immediately — no detour through Settings or the
+  Contacts page required. Existing tag badges on the contact also got
+  a hover (x) to remove them directly. `src/components/inbox/contact-sidebar.tsx`.
+
 ## [0.25.11] — 2026-08-04
 
 ### Fixed
