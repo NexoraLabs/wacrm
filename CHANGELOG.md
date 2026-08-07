@@ -9,6 +9,30 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.14] — 2026-08-07
+
+### Fixed
+
+- **Flow/automation `send_media` messages showed "Image unavailable" /
+  "Video unavailable" in the Inbox** — `engineSendMedia` (Flows) and
+  its automations-engine counterpart both inserted the sent message's
+  DB row without `media_url`, so the Inbox had no URL to render. Both
+  now persist the actual link that was sent to WhatsApp.
+  `src/lib/flows/meta-send.ts`, `src/lib/automations/meta-send.ts`.
+- **AI auto-reply falsely claimed it "can't send images"** when a
+  customer asked to see the product outside an active flow run —
+  confirmed live: a customer repeatedly asked to see "la llave" (their
+  word for the product) and got refused every time even though the
+  flow's keyword-triggered media send already existed and the product
+  photo was available. Root cause was a too-narrow keyword list, not
+  the send mechanism itself.
+- Simplified the Flows `send_media` node's upload UI to a single
+  "upload image or video" button that auto-detects the type from the
+  file's MIME type, instead of requiring "Media type" to be picked
+  from a dropdown before a file could even be selected — an easy way
+  to end up with the wrong type still selected from a prior edit.
+  `src/components/flows/forms/node-config-form.tsx`.
+
 ## [0.25.13] — 2026-08-07
 
 ### Fixed

@@ -1194,6 +1194,29 @@ const MEDIA_ACCEPT: Record<NonNullable<SendMediaCfg["media_type"]>, string> = {
 
 const FLOW_MEDIA_BUCKET = "flow-media";
 
+// Simple-mode upload accepts image+video in one picker and figures out
+// which one a file is from its MIME type — no need to pre-select a type
+// before you can even pick a file (the old flow, and an easy way to
+// upload a video while "Audio" was still selected from a prior edit).
+const SIMPLE_MEDIA_ACCEPT = `${MEDIA_ACCEPT.image},${MEDIA_ACCEPT.video}`;
+
+function detectMediaType(
+  file: File,
+): NonNullable<SendMediaCfg["media_type"]> | null {
+  if (file.type.startsWith("image/")) return "image";
+  if (file.type.startsWith("video/")) return "video";
+  if (file.type.startsWith("audio/")) return "audio";
+  if (
+    file.type === "application/pdf" ||
+    file.type === "application/msword" ||
+    file.type.startsWith("application/vnd.") ||
+    file.type === "text/plain"
+  ) {
+    return "document";
+  }
+  return null;
+}
+
 function SendMediaForm({
   cfg,
   allNodes,
@@ -1207,6 +1230,12 @@ function SendMediaForm({
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  // Advanced mode (manual type picker) only opens itself for content
+  // that already needs it — a document or audio node loaded from a
+  // saved flow. Otherwise default to the simple "image or video" button.
+  const [showAdvanced, setShowAdvanced] = useState(
+    cfg.media_type === "document" || cfg.media_type === "audio",
+  );
 
   const mediaType = cfg.media_type ?? "image";
   const isDocument = mediaType === "document";
@@ -1216,7 +1245,12 @@ function SendMediaForm({
     (cfg.media_url ? cfg.media_url.split("/").pop() ?? "" : "");
 
   const handleFile = useCallback(
-    async (file: File) => {
+    async (file: File, forcedType?: SendMediaCfg["media_type"]) => {
+      const detected = forcedType ?? detectMediaType(file);
+      if (!detected) {
+        toast.error("Unsupported file type — use an image or a video.");
+        return;
+      }
       if (file.size > MEDIA_MAX_BYTES) {
         toast.error(
           `File is ${(file.size / 1024 / 1024).toFixed(1)} MB — limit is 16 MB.`,
@@ -1229,10 +1263,15 @@ function SendMediaForm({
         // uploadAccountMedia + migration 020's flow-media RLS policy.
         const { publicUrl } = await uploadAccountMedia(FLOW_MEDIA_BUCKET, file);
         // Patch all fields in one call so the form doesn't re-render
-        // with a half-uploaded state.
+        // with a half-uploaded state. media_type is set from what the
+        // file actually is, not from whatever the dropdown was left on.
         onUpdateConfig({
+          media_type: detected,
           media_url: publicUrl,
           filename: file.name,
+          // Audio never carries a caption (Meta rejects it) — drop
+          // any caption left over from a previous type.
+          ...(detected === "audio" ? { caption: "" } : {}),
         });
         toast.success("File uploaded.");
       } catch (err) {
@@ -1251,37 +1290,61 @@ function SendMediaForm({
 
   return (
     <>
-      <div>
-        <label className="mb-1 block text-xs text-muted-foreground">Media type</label>
-        <Select
-          value={mediaType}
-          onValueChange={(v) => {
-            // Changing type clears the existing file — the bucket
-            // accepts different MIME sets per type and a previously
-            // uploaded PDF can't be sent as an image.
-            onUpdateConfig({
-              media_type: v as NonNullable<SendMediaCfg["media_type"]>,
-              media_url: "",
-              filename: "",
-              // Audio never carries a caption (Meta rejects it) — drop
-              // any caption left over from a previous type.
-              ...(v === "audio" ? { caption: "" } : {}),
-            });
-          }}
-        >
-          <SelectTrigger className="bg-muted">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="image">Image (PNG, JPEG, WebP)</SelectItem>
-            <SelectItem value="video">Video (MP4, 3GP)</SelectItem>
-            <SelectItem value="document">
-              Document (PDF, Word, Excel, PowerPoint, TXT)
-            </SelectItem>
-            <SelectItem value="audio">Audio (voice note)</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      {showAdvanced ? (
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">Media type</label>
+          <Select
+            value={mediaType}
+            onValueChange={(v) => {
+              // Changing type clears the existing file — the bucket
+              // accepts different MIME sets per type and a previously
+              // uploaded PDF can't be sent as an image.
+              onUpdateConfig({
+                media_type: v as NonNullable<SendMediaCfg["media_type"]>,
+                media_url: "",
+                filename: "",
+                // Audio never carries a caption (Meta rejects it) — drop
+                // any caption left over from a previous type.
+                ...(v === "audio" ? { caption: "" } : {}),
+              });
+            }}
+          >
+            <SelectTrigger className="bg-muted">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="image">Image (PNG, JPEG, WebP)</SelectItem>
+              <SelectItem value="video">Video (MP4, 3GP)</SelectItem>
+              <SelectItem value="document">
+                Document (PDF, Word, Excel, PowerPoint, TXT)
+              </SelectItem>
+              <SelectItem value="audio">Audio (voice note)</SelectItem>
+            </SelectContent>
+          </Select>
+          {!cfg.media_url && (
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(false)}
+              className="mt-1 text-xs text-muted-foreground underline hover:text-foreground"
+            >
+              Back to image/video upload
+            </button>
+          )}
+        </div>
+      ) : (
+        !cfg.media_url && (
+          <p className="text-xs text-muted-foreground">
+            Upload an image or a video — the type is detected automatically.{" "}
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(true)}
+              className="underline hover:text-foreground"
+            >
+              Need a document or audio instead?
+            </button>
+          </p>
+        )
+      )}
 
       <div>
         <label className="mb-1 block text-xs text-muted-foreground">File</label>
@@ -1297,6 +1360,9 @@ function SendMediaForm({
             >
               {displayName || cfg.media_url}
             </a>
+            <span className="shrink-0 rounded bg-card px-1.5 py-0.5 capitalize text-muted-foreground">
+              {mediaType}
+            </span>
             <button
               type="button"
               onClick={handleClear}
@@ -1322,7 +1388,9 @@ function SendMediaForm({
             ) : (
               <>
                 <Upload className="h-3.5 w-3.5" />
-                Click to upload (max 16 MB)
+                {showAdvanced
+                  ? "Click to upload (max 16 MB)"
+                  : "Upload image or video (max 16 MB)"}
               </>
             )}
           </button>
@@ -1330,11 +1398,11 @@ function SendMediaForm({
         <input
           ref={fileInputRef}
           type="file"
-          accept={MEDIA_ACCEPT[mediaType]}
+          accept={showAdvanced ? MEDIA_ACCEPT[mediaType] : SIMPLE_MEDIA_ACCEPT}
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (f) void handleFile(f);
+            if (f) void handleFile(f, showAdvanced ? mediaType : undefined);
             // Reset so picking the same file twice still fires onChange.
             e.target.value = "";
           }}
