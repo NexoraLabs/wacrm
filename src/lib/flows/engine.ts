@@ -1357,6 +1357,18 @@ async function advanceFromNodeKey(
   // collect_input node in this pass may use the pre-filled value; a
   // repeat visit always re-prompts and genuinely suspends.
   const collectInputVisitedThisPass = new Set<string>();
+  // Paces consecutive sends within this pass — see
+  // `randomMessagePacingMs` above. False until the first message goes
+  // out, so the reply to the customer's own message is never delayed.
+  let sentAnyMessageThisPass = false;
+  async function paceNextSend(): Promise<void> {
+    if (sentAnyMessageThisPass) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, randomMessagePacingMs()),
+      );
+    }
+    sentAnyMessageThisPass = true;
+  }
   // Defensive cap — if a flow has a cycle (which the validator
   // SHOULD catch but doesn't yet in v1), we bail rather than loop.
   for (let safety = 0; safety < 64; safety += 1) {
@@ -1386,6 +1398,7 @@ async function advanceFromNodeKey(
     if (node.node_type === "send_message") {
       const cfg = node.config as unknown as SendMessageNodeConfig;
       try {
+        await paceNextSend();
         const { whatsapp_message_id } = await engineSendText({
           accountId: run.account_id,
     userId: run.user_id,
@@ -1411,6 +1424,7 @@ async function advanceFromNodeKey(
     if (node.node_type === "send_media") {
       const cfg = node.config as unknown as SendMediaNodeConfig;
       try {
+        await paceNextSend();
         const { whatsapp_message_id } = await engineSendMedia({
           accountId: run.account_id,
     userId: run.user_id,
@@ -1461,6 +1475,7 @@ async function advanceFromNodeKey(
       // Send the prompt and suspend. Customer's next TEXT reply will
       // wake us up via handleReplyForActiveRun's collect_input branch.
       try {
+        await paceNextSend();
         const { whatsapp_message_id } = await engineSendText({
           accountId: run.account_id,
     userId: run.user_id,
@@ -1507,6 +1522,7 @@ async function advanceFromNodeKey(
     if (node.node_type === "collect_payment_proof") {
       const cfg = node.config as unknown as CollectPaymentProofNodeConfig;
       try {
+        await paceNextSend();
         const { whatsapp_message_id } = await engineSendText({
           accountId: run.account_id,
     userId: run.user_id,
@@ -1648,6 +1664,7 @@ async function advanceFromNodeKey(
     if (node.node_type === "ai_reply") {
       const cfg = node.config as unknown as AiReplyNodeConfig;
       try {
+        await paceNextSend();
         const result = await generateAiAnswer(
           db,
           run,
@@ -1675,6 +1692,7 @@ async function advanceFromNodeKey(
       continue;
     }
     if (node.node_type === "send_buttons") {
+      await paceNextSend();
       await sendButtonsAndSuspend(db, run, node);
       // Persist the new current_node_key via optimistic UPDATE.
       const advanced = await advanceCurrentNodeKey(
@@ -1691,6 +1709,7 @@ async function advanceFromNodeKey(
       return { outcome: "advanced" };
     }
     if (node.node_type === "send_list") {
+      await paceNextSend();
       await sendListAndSuspend(db, run, node);
       const advanced = await advanceCurrentNodeKey(
         db,
@@ -1762,6 +1781,22 @@ async function advanceCurrentNodeKey(
     return false;
   }
   return Array.isArray(data) && data.length > 0;
+}
+
+// Consecutive auto-sent messages within one advance pass (e.g. a
+// welcome node chained straight into a pitch node) used to land on the
+// customer's phone in one instant burst — reads as a bot dump instead
+// of someone actually typing. A randomized pause between them (skipped
+// before the very first send, so the reply to the customer's own
+// message still feels prompt) makes multi-message flows read like a
+// real conversation.
+const MESSAGE_PACING_MIN_MS = 3_000;
+const MESSAGE_PACING_MAX_MS = 5_000;
+function randomMessagePacingMs(): number {
+  return (
+    MESSAGE_PACING_MIN_MS +
+    Math.random() * (MESSAGE_PACING_MAX_MS - MESSAGE_PACING_MIN_MS)
+  );
 }
 
 // A crashed request could leave a run locked forever — treat a claim
