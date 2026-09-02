@@ -9,6 +9,19 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.16] — 2026-09-02
+
+### Changed
+
+- **Flows now pace out consecutive auto-sent messages** — a node that
+  chains straight into more send-type nodes in the same advance pass
+  (e.g. a multi-message welcome pitch) used to fire every message
+  back-to-back, landing on the customer's phone as an instant burst
+  instead of a real conversation. Added a randomized 3-5s pause before
+  every send after the first one in a pass (skipped before the very
+  first message, so replies to the customer's own message still feel
+  prompt). `src/lib/flows/engine.ts`.
+
 ## [0.25.15] — 2026-08-07
 
 ### Fixed
