@@ -9,6 +9,17 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.17] — 2026-09-04
+
+### Changed
+
+- Account `lbolanosalban@gmail.com`'s "Bienvenida - Cero Rabietas"
+  flow: the price-message step now sends a promotional product image
+  (ebook + 3 bonos + gift) instead of plain text, and the bonos
+  step's text was trimmed to drop the now-redundant price intro
+  line. Content-only change (`flow_nodes` data), no code touched.
+  Live-verified end to end over WhatsApp.
+
 ## [0.25.16] — 2026-09-02
 
 ### Changed
