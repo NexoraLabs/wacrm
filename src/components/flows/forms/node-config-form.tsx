@@ -1365,6 +1365,20 @@ function SendMediaForm({
             </span>
             <button
               type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              aria-label="Replace file"
+              title="Replace file"
+              disabled={uploading}
+            >
+              {uploading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+            </button>
+            <button
+              type="button"
               onClick={handleClear}
               className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
               aria-label="Remove file"

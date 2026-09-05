@@ -9,6 +9,30 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.18] — 2026-09-05
+
+### Added
+
+- **Flow builder: "replace file" button on `send_media` nodes.** Once a
+  node already has an image/video/document/audio uploaded, you can now
+  swap it directly with one click instead of removing it first and
+  re-opening the upload picker. `src/components/flows/forms/node-config-form.tsx`.
+
+### Changed
+
+- Account `lbolanosalban@gmail.com`'s ebook product/flow/automations
+  renamed from "Cero Rabietas" to "Crianza Sin Gritos" (product name,
+  description, AI prompt, flow name, payment-handoff/access-link copy,
+  admin-notification title), and the quick-action bonus gift swapped
+  from "KIT-RÁPIDO-ANTI-BERRINCHES" to "E-book Cero Pantallas de
+  Celular" (same $20.000 value, same 5-minute-purchase mechanism). The
+  flow's promotional image and the product catalog cover image were
+  both replaced with new "Crianza Sin Gritos" branded artwork. Content
+  only (`products`/`flows`/`flow_nodes`/`automation_steps` data plus a
+  new upload to the `flow-media` bucket), no code touched. Delivery
+  link (`hotm.io/CERO-RABIETAS-CRIANZA`) left unchanged — same
+  underlying file. Live-verified end to end over WhatsApp.
+
 ## [0.25.17] — 2026-09-04
 
 ### Changed
