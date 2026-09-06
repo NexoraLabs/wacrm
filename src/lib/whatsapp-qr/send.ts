@@ -20,12 +20,17 @@ const MIME_BY_EXTENSION: Record<string, string> = {
   txt: 'text/plain',
   csv: 'text/csv',
   zip: 'application/zip',
+  ogg: 'audio/ogg; codecs=opus',
+  mp3: 'audio/mpeg',
+  m4a: 'audio/mp4',
+  aac: 'audio/aac',
+  amr: 'audio/amr',
 }
 
-/** Baileys requires an explicit document mimetype (unlike Meta, which infers it) — best-effort from the file extension. */
-function guessMimeType(nameOrUrl: string): string {
+/** Baileys requires an explicit mimetype (unlike Meta, which infers it) — best-effort from the file extension. */
+function guessMimeType(nameOrUrl: string, fallback = 'application/octet-stream'): string {
   const ext = nameOrUrl.split('.').pop()?.toLowerCase().split(/[?#]/)[0]
-  return (ext && MIME_BY_EXTENSION[ext]) || 'application/octet-stream'
+  return (ext && MIME_BY_EXTENSION[ext]) || fallback
 }
 
 function requireSocket(configId: string) {
@@ -80,7 +85,7 @@ export async function sendMediaMessage(args: {
       : args.kind === 'video'
         ? { video: { url: args.link }, caption: args.caption }
         : args.kind === 'audio'
-          ? { audio: { url: args.link }, mimetype: 'audio/ogg; codecs=opus' }
+          ? { audio: { url: args.link }, mimetype: guessMimeType(args.link, 'audio/mpeg') }
           : {
               document: { url: args.link },
               mimetype: guessMimeType(args.filename || args.link),

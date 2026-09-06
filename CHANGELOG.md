@@ -9,6 +9,41 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.21] — 2026-09-06
+
+### Fixed
+
+- **QR/Baileys audio messages showed as "audio not available" on the
+  recipient's phone for any file that wasn't actually Opus-encoded
+  OGG.** `sendMediaMessage` in `src/lib/whatsapp-qr/send.ts` hardcoded
+  `mimetype: 'audio/ogg; codecs=opus'` on every outbound audio send
+  regardless of the real file format — an MP3 (the normal case for a
+  `send_media` audio node, e.g. a bonus podcast) got tagged as Opus/OGG
+  and failed to decode on the recipient's end even though our own
+  message log showed it as sent successfully. Now guesses the mimetype
+  from the file extension (same approach already used for documents),
+  correctly handling `.mp3`/`.m4a`/`.aac`/`.amr` in addition to `.ogg`,
+  defaulting to `audio/mpeg` when the extension is unknown. Likely
+  affected every QR-connected number that ever sent non-OGG audio via a
+  flow/automation `send_media` step. Cloud API sends were unaffected
+  (Meta infers the type itself). Found live-testing the new
+  free-bono-audio hook on `lbolanosalban@gmail.com`'s account (see the
+  0.25.20 entry above).
+
+## [0.25.20] — 2026-09-06
+
+### Changed
+
+- Account `lbolanosalban@gmail.com`'s "Bienvenida - Crianza Sin Gritos"
+  flow: added a free-sample hook right after the welcome message —
+  sends the real Bono 2 promo image + caption, then the actual Bono 2
+  podcast audio file, before the price pitch. Goal: build trust by
+  giving away one real bonus up front instead of asking for payment
+  cold. The audio (originally ~23MB) was re-encoded to ~13MB mono/112kbps
+  to fit the `flow-media` bucket's 16MB upload limit. Content only
+  (`flow_nodes` data plus two new uploads to `flow-media`), no code
+  touched.
+
 ## [0.25.19] — 2026-09-06
 
 ### Changed
