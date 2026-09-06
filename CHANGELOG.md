@@ -9,6 +9,21 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.19] — 2026-09-06
+
+### Changed
+
+- Account `lbolanosalban@gmail.com`'s "Bienvenida - Crianza Sin Gritos"
+  flow: the price-message step's promotional image was replaced with new
+  artwork, and the separate bonos text message was merged into that same
+  image as its WhatsApp caption instead of a follow-up chat bubble (the
+  now-empty bonos node was removed and the image step now advances
+  straight to the 5-minute-bonus message). Product catalog cover image
+  updated to match. Went through two rounds of art before landing on the
+  final version; the two superseded promo images were deleted from the
+  `flow-media` bucket. Content only (`flow_nodes`/`products` data plus a
+  storage upload/cleanup), no code touched.
+
 ## [0.25.18] — 2026-09-05
 
 ### Added
