@@ -9,6 +9,16 @@ Versions follow [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Pre-1.0, `MINOR` bumps cover new modules; `PATCH` bumps cover bug fixes
 and polish.
 
+## [0.25.22] — 2026-09-06
+
+### Changed
+
+- Account `lbolanosalban@gmail.com`'s "Bienvenida - Crianza Sin Gritos"
+  flow + AI prompt: replaced "COP" with "PESOS COLOMBIANOS" everywhere
+  the $15.000 price appears, and raised the 5-minute-purchase gift's
+  stated value from $20.000 to $50.000. Content only (`flow_nodes`/
+  `products.ai_prompt` data), no code touched.
+
 ## [0.25.21] — 2026-09-06
 
 ### Fixed
