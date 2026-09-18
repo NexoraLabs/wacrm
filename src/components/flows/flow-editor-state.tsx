@@ -136,9 +136,9 @@ export function uniqueNodeKey(base: string, existing: BuilderNode[]): string {
 export function defaultConfigFor(type: NodeType): Record<string, unknown> {
   switch (type) {
     case "start":
-      return { next_node_key: "" };
+      return { delay_seconds: 3, next_node_key: "" };
     case "send_message":
-      return { text: "", next_node_key: "" };
+      return { text: "", delay_seconds: 3, next_node_key: "" };
     case "send_buttons":
       return {
         text: "",
@@ -159,6 +159,7 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
       };
     case "send_media":
       return {
+        delay_seconds: 3,
         media_type: "image",
         media_url: "",
         caption: "",
@@ -182,6 +183,7 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
       };
     case "condition":
       return {
+        delay_seconds: 3,
         subject: "var",
         subject_key: "",
         operator: "equals",
@@ -190,9 +192,10 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
         false_next: "",
       };
     case "set_tag":
-      return { mode: "add", tag_id: "", next_node_key: "" };
+      return { mode: "add", tag_id: "", delay_seconds: 3, next_node_key: "" };
     case "export_order":
       return {
+        delay_seconds: 3,
         product_id: "",
         address_var_key: "",
         city_var_key: "",
@@ -202,7 +205,7 @@ export function defaultConfigFor(type: NodeType): Record<string, unknown> {
         next_node_key: "",
       };
     case "ai_reply":
-      return { prompt: "", next_node_key: "" };
+      return { prompt: "", delay_seconds: 3, next_node_key: "" };
     case "handoff":
       return { note: "" };
     case "end":

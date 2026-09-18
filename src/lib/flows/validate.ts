@@ -187,6 +187,33 @@ function validateNode(
   knownKeys: Set<string>,
 ): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
+  const supportsDelay = [
+    "start",
+    "send_message",
+    "send_media",
+    "ai_reply",
+    "condition",
+    "set_tag",
+    "export_order",
+  ].includes(node.node_type);
+  const delaySeconds = (node.config as { delay_seconds?: unknown })
+    .delay_seconds;
+  if (
+    supportsDelay &&
+    delaySeconds !== undefined &&
+    (typeof delaySeconds !== "number" ||
+      !Number.isInteger(delaySeconds) ||
+      delaySeconds < 0 ||
+      delaySeconds > 60)
+  ) {
+    issues.push({
+      severity: "error",
+      scope: "node",
+      node_key: node.node_key,
+      field: "delay_seconds",
+      message: "Message delay must be a whole number from 0 to 60 seconds.",
+    });
+  }
 
   switch (node.node_type) {
     case "start": {
@@ -212,7 +239,10 @@ function validateNode(
     }
 
     case "send_message": {
-      const cfg = node.config as { text?: string; next_node_key?: string };
+      const cfg = node.config as {
+        text?: string;
+        next_node_key?: string;
+      };
       if (!cfg.text?.trim()) {
         issues.push({
           severity: "error",

@@ -1361,13 +1361,17 @@ async function advanceFromNodeKey(
   // `randomMessagePacingMs` above. False until the first message goes
   // out, so the reply to the customer's own message is never delayed.
   let sentAnyMessageThisPass = false;
+  let nextMessageDelayMs: number | null = null;
   async function paceNextSend(): Promise<void> {
     if (sentAnyMessageThisPass) {
       await new Promise((resolve) =>
-        setTimeout(resolve, randomMessagePacingMs()),
+        setTimeout(resolve, nextMessageDelayMs ?? randomMessagePacingMs()),
       );
     }
     sentAnyMessageThisPass = true;
+  }
+  function setNextMessageDelay(delaySeconds?: unknown): void {
+    nextMessageDelayMs = resolveMessageDelayMs(delaySeconds);
   }
   // Defensive cap — if a flow has a cycle (which the validator
   // SHOULD catch but doesn't yet in v1), we bail rather than loop.
@@ -1392,7 +1396,9 @@ async function advanceFromNodeKey(
     });
 
     if (node.node_type === "start") {
-      currentKey = (node.config as unknown as StartNodeConfig).next_node_key;
+      const cfg = node.config as unknown as StartNodeConfig;
+      setNextMessageDelay(cfg.delay_seconds);
+      currentKey = cfg.next_node_key;
       continue;
     }
     if (node.node_type === "send_message") {
@@ -1410,6 +1416,9 @@ async function advanceFromNodeKey(
           node_type: "send_message",
           whatsapp_message_id,
         });
+        // This delay belongs to the transition out of the message, even
+        // when one or more logic nodes sit before the next send.
+        setNextMessageDelay(cfg.delay_seconds);
       } catch (err) {
         await logEvent(db, run.id, "error", node.node_key, {
           reason: "send_text_failed",
@@ -1442,6 +1451,7 @@ async function advanceFromNodeKey(
           media_type: cfg.media_type,
           whatsapp_message_id,
         });
+        setNextMessageDelay(cfg.delay_seconds);
       } catch (err) {
         await logEvent(db, run.id, "error", node.node_key, {
           reason: "send_media_failed",
@@ -1487,6 +1497,7 @@ async function advanceFromNodeKey(
           node_type: "collect_input",
           whatsapp_message_id,
         });
+        setNextMessageDelay();
         const { data: msg } = await db
           .from("messages")
           .select("id")
@@ -1534,6 +1545,7 @@ async function advanceFromNodeKey(
           node_type: "collect_payment_proof",
           whatsapp_message_id,
         });
+        setNextMessageDelay();
       } catch (err) {
         await logEvent(db, run.id, "error", node.node_key, {
           reason: "collect_payment_proof_prompt_failed",
@@ -1572,6 +1584,7 @@ async function advanceFromNodeKey(
       }
       currentKey =
         branch === "true" ? cfg.true_next : cfg.false_next;
+      setNextMessageDelay(cfg.delay_seconds);
       await logEvent(db, run.id, "node_entered", node.node_key, {
         condition_result: branch,
         advancing_to: currentKey,
@@ -1621,6 +1634,7 @@ async function advanceFromNodeKey(
           detail: err instanceof Error ? err.message : String(err),
         });
       }
+      setNextMessageDelay(cfg.delay_seconds);
       currentKey = cfg.next_node_key;
       continue;
     }
@@ -1658,6 +1672,7 @@ async function advanceFromNodeKey(
           );
         }
       }
+      setNextMessageDelay(cfg.delay_seconds);
       currentKey = cfg.next_node_key;
       continue;
     }
@@ -1680,6 +1695,7 @@ async function advanceFromNodeKey(
           node_type: "ai_reply",
           whatsapp_message_id: result.whatsapp_message_id,
         });
+        setNextMessageDelay(cfg.delay_seconds);
       } catch (err) {
         await logEvent(db, run.id, "error", node.node_key, {
           reason: "ai_reply_failed",
@@ -1797,6 +1813,20 @@ function randomMessagePacingMs(): number {
     MESSAGE_PACING_MIN_MS +
     Math.random() * (MESSAGE_PACING_MAX_MS - MESSAGE_PACING_MIN_MS)
   );
+}
+
+/** Resolve the optional per-message setting into a safe pause. */
+export function resolveMessageDelayMs(delaySeconds: unknown): number {
+  if (
+    typeof delaySeconds === "number" &&
+    Number.isInteger(delaySeconds) &&
+    delaySeconds >= 0 &&
+    delaySeconds <= 60
+  ) {
+    return delaySeconds * 1_000;
+  }
+  // Existing flows do not have the field, so retain their natural pacing.
+  return randomMessagePacingMs();
 }
 
 // A crashed request could leave a run locked forever — treat a claim

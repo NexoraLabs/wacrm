@@ -89,6 +89,47 @@ export function NextNodeRow({
   );
 }
 
+/**
+ * Timing control for a message that is followed by another automatic
+ * message. Keeping it beside the destination picker makes the direction
+ * explicit: this value belongs to the transition out of the current node.
+ */
+export function DelaySecondsRow({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div>
+      <label className="mb-1 block text-xs text-muted-foreground">
+        Espera antes del siguiente envío (segundos)
+      </label>
+      <Input
+        type="number"
+        min={0}
+        max={60}
+        step={1}
+        value={value}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          onChange(
+            Number.isFinite(next)
+              ? Math.min(60, Math.max(0, Math.round(next)))
+              : 0,
+          );
+        }}
+        className="bg-muted"
+      />
+      <p className="mt-1 text-[10px] text-muted-foreground">
+        Usa 0 para continuar inmediatamente. Máximo: 60
+        segundos.
+      </p>
+    </div>
+  );
+}
+
 export function NodeKeySelect({
   value,
   nodes,

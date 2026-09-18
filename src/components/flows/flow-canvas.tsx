@@ -57,7 +57,17 @@ import {
   type OnNodeDrag,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Plus, Trash2 } from 'lucide-react';
+import {
+  Clock3,
+  FileText,
+  Film,
+  ImageIcon,
+  MessageCircle,
+  Music,
+  Paperclip,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -106,6 +116,7 @@ interface NodeData extends Record<string, unknown> {
 }
 
 const NODE_WIDTH = 240;
+const MESSAGE_NODE_WIDTH = 320;
 // Best-effort default; actual height varies by summary length but
 // dagre needs SOMETHING to compute rank spacing. Underestimating is
 // safer than over (tighter layout that still doesn't overlap).
@@ -131,12 +142,112 @@ function slotColor(nodeType: NodeType, slotId: string, fallback: string) {
   return fallback;
 }
 
+/** A compact WhatsApp-style preview makes outgoing conversation nodes readable. */
+function ConversationBubblePreview({ node }: { node: BuilderNode }) {
+  const cfg = node.config as {
+    text?: unknown;
+    caption?: unknown;
+    media_type?: unknown;
+    media_url?: unknown;
+    filename?: unknown;
+    delay_seconds?: unknown;
+  };
+  const isMedia = node.node_type === 'send_media';
+  const text =
+    typeof (isMedia ? cfg.caption : cfg.text) === 'string'
+      ? ((isMedia ? cfg.caption : cfg.text) as string).trim()
+      : '';
+  const mediaType = typeof cfg.media_type === 'string' ? cfg.media_type : 'file';
+  const mediaUrl = typeof cfg.media_url === 'string' ? cfg.media_url : '';
+  const filename = typeof cfg.filename === 'string' ? cfg.filename : '';
+  const delaySeconds =
+    typeof cfg.delay_seconds === 'number' &&
+    Number.isInteger(cfg.delay_seconds) &&
+    cfg.delay_seconds >= 0
+      ? cfg.delay_seconds
+      : 3;
+
+  return (
+    <div className="mt-3 rounded-2xl rounded-tl-sm border border-emerald-500/20 bg-emerald-500/10 px-3 py-2.5 shadow-sm">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold tracking-wide text-emerald-700 uppercase dark:text-emerald-300">
+        {isMedia ? <Paperclip className="h-3 w-3" /> : <MessageCircle className="h-3 w-3" />}
+        {isMedia ? 'Multimedia de WhatsApp' : 'Mensaje de WhatsApp'}
+      </div>
+      {isMedia && (
+        <MediaAttachmentPreview
+          type={mediaType}
+          url={mediaUrl}
+          filename={filename}
+        />
+      )}
+      <p className="text-foreground line-clamp-4 whitespace-pre-wrap text-[12px] leading-relaxed">
+        {text || (isMedia ? 'Añade una descripción opcional…' : 'Escribe el mensaje que recibirá tu cliente…')}
+      </p>
+      <div className="mt-2 flex items-center gap-1.5 border-t border-emerald-500/15 pt-2 text-[10px] text-emerald-800/80 dark:text-emerald-200/80">
+        <Clock3 className="h-3 w-3" />
+        {delaySeconds === 0
+          ? 'El siguiente mensaje se envía de inmediato'
+          : `Siguiente mensaje en ${delaySeconds} s`}
+      </div>
+    </div>
+  );
+}
+
+function MediaAttachmentPreview({
+  type,
+  url,
+  filename,
+}: {
+  type: string;
+  url: string;
+  filename: string;
+}) {
+  if (type === 'image' && url) {
+    return (
+      <img
+        src={url}
+        alt={filename || 'Vista previa del archivo'}
+        className="mb-2 max-h-36 w-full rounded-lg border border-emerald-500/15 object-cover"
+      />
+    );
+  }
+  const Icon =
+    type === 'video'
+      ? Film
+      : type === 'audio'
+        ? Music
+        : type === 'image'
+          ? ImageIcon
+          : FileText;
+  const typeLabel =
+    type === 'video'
+      ? 'Video'
+      : type === 'audio'
+        ? 'Audio'
+        : type === 'image'
+          ? 'Imagen'
+          : 'Documento';
+  return (
+    <div className="mb-2 flex items-center gap-2 rounded-lg border border-emerald-500/15 bg-background/45 p-2 text-xs">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+        <Icon className="h-4 w-4" />
+      </span>
+      <span className="min-w-0">
+        <span className="block font-medium">{filename || typeLabel}</span>
+        <span className="text-muted-foreground block text-[10px]">{typeLabel}</span>
+      </span>
+    </div>
+  );
+}
+
 function FlowNodeCard({ data, selected }: NodeProps) {
   const { node, isEntry, isFlashed } = data as NodeData;
   const meta = NODE_META[node.node_type];
   const c = nodeColors(node.node_type);
   const summary = summarizeNode(node);
   const slots = outgoingSlots(node);
+  const isConversationNode =
+    node.node_type === 'send_message' || node.node_type === 'send_media';
   // Start nodes are entry-only; nothing ever targets them, so they
   // don't need an incoming Handle. Every other node type accepts
   // incoming edges (including terminal handoff / end — they're the
@@ -162,7 +273,8 @@ function FlowNodeCard({ data, selected }: NodeProps) {
         } as React.CSSProperties
       }
       className={cn(
-        'bg-card relative max-w-[260px] min-w-[220px] rounded-xl border px-3.5 py-3 text-left shadow-[0_2px_6px_rgba(0,0,0,0.18)] transition-[box-shadow,border-color]',
+        'bg-card relative rounded-xl border px-3.5 py-3 text-left shadow-[0_2px_6px_rgba(0,0,0,0.18)] transition-[box-shadow,border-color]',
+        isConversationNode ? 'max-w-[320px] min-w-[280px]' : 'max-w-[260px] min-w-[220px]',
         selected
           ? 'border-[var(--nc)]'
           : 'border-border hover:border-[var(--nc-ring)]',
@@ -202,7 +314,9 @@ function FlowNodeCard({ data, selected }: NodeProps) {
       <div className="text-muted-foreground mt-2 truncate font-mono text-[11px]">
         {node.node_key}
       </div>
-      {summary && (
+      {isConversationNode ? (
+        <ConversationBubblePreview node={node} />
+      ) : summary && (
         <div className="text-muted-foreground mt-1 line-clamp-2 text-xs leading-relaxed">
           {summary}
         </div>
@@ -302,8 +416,14 @@ function FlowCanvasInner() {
       ? autoLayout(
           builderNodes.map((n) => ({
             id: n.node_key,
-            width: NODE_WIDTH,
-            height: NODE_HEIGHT,
+            width:
+              n.node_type === 'send_message' || n.node_type === 'send_media'
+                ? MESSAGE_NODE_WIDTH
+                : NODE_WIDTH,
+            height:
+              n.node_type === 'send_message' || n.node_type === 'send_media'
+                ? 180
+                : NODE_HEIGHT,
           })),
           canvasEdges.map((e) => ({ source: e.source, target: e.target })),
           { direction: 'TB' }
@@ -404,8 +524,17 @@ function FlowCanvasInner() {
     if (!flashKey) return;
     const node = builderNodes.find((n) => n.node_key === flashKey);
     if (!node) return;
-    const x = (node.position_x ?? 0) + NODE_WIDTH / 2;
-    const y = (node.position_y ?? 0) + NODE_HEIGHT / 2;
+    const x =
+      (node.position_x ?? 0) +
+      (node.node_type === 'send_message' || node.node_type === 'send_media'
+        ? MESSAGE_NODE_WIDTH
+        : NODE_WIDTH) /
+        2;
+    const y =
+      (node.position_y ?? 0) +
+      (node.node_type === 'send_message' || node.node_type === 'send_media'
+        ? 180
+        : NODE_HEIGHT) / 2;
     reactFlow.setCenter(x, y, {
       zoom: reactFlow.getZoom(),
       duration: 400,
@@ -566,6 +695,15 @@ function FlowCanvasInner() {
           />
           <Panel position="top-left" className="!top-4 !left-4">
             <CanvasAddNodeButton />
+          </Panel>
+          <Panel position="top-right" className="!top-4 !right-4">
+            <div className="border-border bg-card/95 max-w-64 rounded-xl border px-3 py-2.5 text-xs shadow-sm backdrop-blur">
+              <p className="font-medium">Constructor visual</p>
+              <p className="text-muted-foreground mt-0.5 leading-relaxed">
+                Haz clic en un bloque para editarlo y arrastra los puntos para
+                conectar los pasos.
+              </p>
+            </div>
           </Panel>
         </ReactFlow>
       </div>

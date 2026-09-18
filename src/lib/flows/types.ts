@@ -22,12 +22,17 @@
 // Node configs (discriminated union by node_type)
 // ============================================================
 
-export interface StartNodeConfig {
+interface AutomaticTransitionConfig {
+  /** Seconds to wait before the next automatic message is sent. */
+  delay_seconds?: number;
+}
+
+export interface StartNodeConfig extends AutomaticTransitionConfig {
   /** Stable node_key of the first real node to advance to. */
   next_node_key: string;
 }
 
-export interface SendMessageNodeConfig {
+export interface SendMessageNodeConfig extends AutomaticTransitionConfig {
   /** Plain text sent to the customer; can interpolate {{vars.X}}. */
   text: string;
   /** Auto-advance target after the message lands at Meta. */
@@ -81,7 +86,7 @@ export interface SendListNodeConfig {
  * the builder forms, engine cases, and add-menu entries for no
  * meaningful behavioural difference.
  */
-export interface SendMediaNodeConfig {
+export interface SendMediaNodeConfig extends AutomaticTransitionConfig {
   media_type: "image" | "video" | "document" | "audio";
   /** Public URL Meta will fetch. Uploaded via the builder's file picker. */
   media_url: string;
@@ -108,7 +113,7 @@ export interface SendMediaNodeConfig {
  * Requires an active `ai_configs` row for the account; the run fails
  * if the assistant isn't configured.
  */
-export interface AiReplyNodeConfig {
+export interface AiReplyNodeConfig extends AutomaticTransitionConfig {
   /**
    * Task-specific instruction layered on top of the account's AI
    * business context (Settings → AI Assistant), e.g. "Ask if they
@@ -172,7 +177,7 @@ export type ConditionSubject = "var" | "tag" | "contact_field";
  * profile fields, or stored vars. Always auto-advances — no Meta
  * call, no customer-side input.
  */
-export interface ConditionNodeConfig {
+export interface ConditionNodeConfig extends AutomaticTransitionConfig {
   subject: ConditionSubject;
   /**
    * For `var`: the key in flow_runs.vars.
@@ -189,7 +194,7 @@ export interface ConditionNodeConfig {
   false_next: string;
 }
 
-export interface SetTagNodeConfig {
+export interface SetTagNodeConfig extends AutomaticTransitionConfig {
   mode: "add" | "remove";
   /** Tag UUID. The builder picks from the user's existing tags. */
   tag_id: string;
@@ -209,7 +214,7 @@ export interface SetTagNodeConfig {
  * enforcement is on — see `exportOrderRow` in
  * `src/lib/google-sheets/export-order.ts`.
  */
-export interface ExportOrderNodeConfig {
+export interface ExportOrderNodeConfig extends AutomaticTransitionConfig {
   /** Which product's connected sheet to append to. */
   product_id: string;
   /** flow_runs.vars key holding the delivery address. */

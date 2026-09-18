@@ -47,13 +47,28 @@ import {
 import { cn } from "@/lib/utils";
 import { uploadAccountMedia, MEDIA_MAX_BYTES } from "@/lib/storage/upload-media";
 import { slugify, type BuilderNode } from "../shared";
-import { NextNodeRow, NodeKeySelect, TextRow } from "./fields";
+import { DelaySecondsRow, NextNodeRow, NodeKeySelect, TextRow } from "./fields";
 
 interface NodeConfigFormProps {
   node: BuilderNode;
   allNodes: BuilderNode[];
   showAdvanced: boolean;
   onUpdateConfig: (patch: Record<string, unknown>) => void;
+}
+
+function TransitionDelayControl({
+  cfg,
+  onUpdateConfig,
+}: {
+  cfg: Record<string, unknown>;
+  onUpdateConfig: (patch: Record<string, unknown>) => void;
+}) {
+  return (
+    <DelaySecondsRow
+      value={typeof cfg.delay_seconds === "number" ? cfg.delay_seconds : 3}
+      onChange={(delay_seconds) => onUpdateConfig({ delay_seconds })}
+    />
+  );
 }
 
 export function NodeConfigForm({
@@ -66,13 +81,16 @@ export function NodeConfigForm({
   switch (node.node_type) {
     case "start":
       return (
-        <NextNodeRow
-          value={(cfg as { next_node_key?: string }).next_node_key ?? ""}
-          allNodes={allNodes}
-          currentKey={node.node_key}
-          onChange={(v) => onUpdateConfig({ next_node_key: v })}
-          label="Advances to"
-        />
+        <>
+          <NextNodeRow
+            value={(cfg as { next_node_key?: string }).next_node_key ?? ""}
+            allNodes={allNodes}
+            currentKey={node.node_key}
+            onChange={(v) => onUpdateConfig({ next_node_key: v })}
+            label="Advances to"
+          />
+          <TransitionDelayControl cfg={cfg} onUpdateConfig={onUpdateConfig} />
+        </>
       );
 
     case "send_message":
@@ -91,6 +109,7 @@ export function NodeConfigForm({
             onChange={(v) => onUpdateConfig({ next_node_key: v })}
             label="Advances to"
           />
+          <TransitionDelayControl cfg={cfg} onUpdateConfig={onUpdateConfig} />
         </>
       );
 
@@ -115,6 +134,7 @@ export function NodeConfigForm({
             onChange={(v) => onUpdateConfig({ next_node_key: v })}
             label="Advances to"
           />
+          <TransitionDelayControl cfg={cfg} onUpdateConfig={onUpdateConfig} />
         </>
       );
 
@@ -142,12 +162,15 @@ export function NodeConfigForm({
 
     case "send_media":
       return (
-        <SendMediaForm
-          cfg={cfg as SendMediaCfg}
-          allNodes={allNodes}
-          currentKey={node.node_key}
-          onUpdateConfig={onUpdateConfig}
-        />
+        <>
+          <SendMediaForm
+            cfg={cfg as SendMediaCfg}
+            allNodes={allNodes}
+            currentKey={node.node_key}
+            onUpdateConfig={onUpdateConfig}
+          />
+          <TransitionDelayControl cfg={cfg} onUpdateConfig={onUpdateConfig} />
+        </>
       );
 
     case "collect_input":
@@ -205,32 +228,41 @@ export function NodeConfigForm({
 
     case "condition":
       return (
-        <ConditionForm
-          cfg={cfg as ConditionCfg}
-          allNodes={allNodes}
-          currentKey={node.node_key}
-          onUpdateConfig={onUpdateConfig}
-        />
+        <>
+          <ConditionForm
+            cfg={cfg as ConditionCfg}
+            allNodes={allNodes}
+            currentKey={node.node_key}
+            onUpdateConfig={onUpdateConfig}
+          />
+          <TransitionDelayControl cfg={cfg} onUpdateConfig={onUpdateConfig} />
+        </>
       );
 
     case "set_tag":
       return (
-        <SetTagForm
-          cfg={cfg as SetTagCfg}
-          allNodes={allNodes}
-          currentKey={node.node_key}
-          onUpdateConfig={onUpdateConfig}
-        />
+        <>
+          <SetTagForm
+            cfg={cfg as SetTagCfg}
+            allNodes={allNodes}
+            currentKey={node.node_key}
+            onUpdateConfig={onUpdateConfig}
+          />
+          <TransitionDelayControl cfg={cfg} onUpdateConfig={onUpdateConfig} />
+        </>
       );
 
     case "export_order":
       return (
-        <ExportOrderForm
-          cfg={cfg as ExportOrderCfg}
-          allNodes={allNodes}
-          currentKey={node.node_key}
-          onUpdateConfig={onUpdateConfig}
-        />
+        <>
+          <ExportOrderForm
+            cfg={cfg as ExportOrderCfg}
+            allNodes={allNodes}
+            currentKey={node.node_key}
+            onUpdateConfig={onUpdateConfig}
+          />
+          <TransitionDelayControl cfg={cfg} onUpdateConfig={onUpdateConfig} />
+        </>
       );
 
     case "handoff":

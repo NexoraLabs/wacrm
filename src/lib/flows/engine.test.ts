@@ -13,9 +13,25 @@ import {
   looksWorthClassifying,
   buildFieldExtractionPrompt,
   parseFieldExtractionResponse,
+  resolveMessageDelayMs,
   type PendingCollectInputField,
 } from "./engine";
 import type { FlowNodeRow } from "./types";
+
+describe("resolveMessageDelayMs", () => {
+  it("uses the configured whole-second delay", () => {
+    expect(resolveMessageDelayMs(0)).toBe(0);
+    expect(resolveMessageDelayMs(12)).toBe(12_000);
+    expect(resolveMessageDelayMs(60)).toBe(60_000);
+  });
+
+  it("falls back to natural pacing for missing or invalid values", () => {
+    expect(resolveMessageDelayMs(undefined)).toBeGreaterThanOrEqual(3_000);
+    expect(resolveMessageDelayMs(undefined)).toBeLessThanOrEqual(5_000);
+    expect(resolveMessageDelayMs(1.5)).toBeGreaterThanOrEqual(3_000);
+    expect(resolveMessageDelayMs(61)).toBeLessThanOrEqual(5_000);
+  });
+});
 
 describe("matchReplyId", () => {
   it("returns null for nodes without options", () => {
